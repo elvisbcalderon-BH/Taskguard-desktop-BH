@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
 
-// Tipos de datos para TypeScript
 export interface Task {
   id: string;
   title: string;
@@ -10,14 +9,16 @@ export interface Task {
   priority: 'Alta' | 'Media' | 'Baja';
   status: 'Pendiente' | 'En Progreso' | 'Completada';
   phi_flag: boolean;
-  bot_access: boolean; // NUEVO: Control explícito de acceso para Dots y Musa
+  bot_access: boolean;
+  due_date: string; // Fecha de vencimiento / Cita (YYYY-MM-DD)
+  created_at: string;
 }
 
 export interface BotAuthRequest {
   id: string;
   bot_name: 'Dots' | 'Musa' | string;
   requested_action: string;
-  payload: { title: string; category: string; priority: string; phi_flag: boolean; description?: string };
+  payload: { title: string; category: string; priority: string; phi_flag: boolean; due_date?: string; description?: string };
   status: 'Pendiente' | 'Aprobado' | 'Rechazado';
 }
 
@@ -26,12 +27,14 @@ export default function TaskGuardDashboard() {
     {
       id: '1',
       title: 'Revisión de resultados de laboratorio - Paciente A',
-      description: 'Verificar valores fuera de rango y ajustar medicación.',
+      description: 'Cita médica y verificación de valores críticos.',
       category: 'Clinica',
       priority: 'Alta',
       status: 'Pendiente',
       phi_flag: true,
-      bot_access: false, // Privado: los bots no pueden tocarlo por seguridad HIPAA
+      bot_access: false,
+      due_date: '2026-10-15', // Ejemplo vencido
+      created_at: '2026-10-10',
     },
     {
       id: '2',
@@ -41,7 +44,9 @@ export default function TaskGuardDashboard() {
       priority: 'Media',
       status: 'Pendiente',
       phi_flag: false,
-      bot_access: true, // Permitido para que los bots ayuden a gestionar
+      bot_access: true,
+      due_date: '2026-10-25', // Ejemplo a futuro
+      created_at: '2026-10-18',
     },
   ]);
 
@@ -50,7 +55,13 @@ export default function TaskGuardDashboard() {
       id: 'req-1',
       bot_name: 'Musa',
       requested_action: 'INSERT_TASK',
-      payload: { title: 'Seguimiento de inventario de suministros', category: 'Administrativa', priority: 'Media', phi_flag: false },
+      payload: { 
+        title: 'Seguimiento de inventario de suministros', 
+        category: 'Administrativa', 
+        priority: 'Media', 
+        phi_flag: false,
+        due_date: '2026-10-20'
+      },
       status: 'Pendiente',
     },
   ]);
@@ -61,6 +72,7 @@ export default function TaskGuardDashboard() {
   const [newDesc, setNewDesc] = useState('');
   const [newCategory, setNewCategory] = useState<'Clinica' | 'Administrativa' | 'Personal'>('Clinica');
   const [newPriority, setNewPriority] = useState<'Alta' | 'Media' | 'Baja'>('Alta');
+  const [newDueDate, setNewDueDate] = useState('2026-10-22');
   const [newPhiFlag, setNewPhiFlag] = useState(false);
   const [newBotAccess, setNewBotAccess] = useState(false);
 
@@ -69,7 +81,7 @@ export default function TaskGuardDashboard() {
     fetchFromSupabase();
 
     const channel = supabase
-      .channel('schema-db-changes-v2')
+      .channel('schema-db-changes-v3')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'tasks' },
@@ -101,6 +113,8 @@ export default function TaskGuardDashboard() {
             status: t.status === 'completed' ? 'Completada' : t.status === 'in_progress' ? 'En Progreso' : 'Pendiente',
             phi_flag: !!t.phi_flag,
             bot_access: t.bot_access !== undefined ? !!t.bot_access : !t.phi_flag,
+            due_date: t.due_date ? t.due_date.substring(0, 10) : '2026-10-20',
+            created_at: t.created_at ? t.created_at.substring(0, 10) : '2026-10-18',
           }))
         );
       }
@@ -117,6 +131,7 @@ export default function TaskGuardDashboard() {
               category: a.requested_payload?.category || 'Clinica',
               priority: a.requested_payload?.quadrant === 'urgent_important' ? 'Alta' : 'Media',
               phi_flag: !!a.phi_risk_detected || !!a.requested_payload?.phi_flag,
+              due_date: a.requested_payload?.due_date ? a.requested_payload.due_date.substring(0, 10) : '2026-10-22',
               description: a.requested_payload?.description || '',
             },
             status: 'Pendiente',
@@ -128,7 +143,6 @@ export default function TaskGuardDashboard() {
     }
   };
 
-  // Función para alternar el acceso de los bots a una tarea específica
   const toggleBotAccess = async (id: string) => {
     let nextValue = false;
     setTasks((prev) =>
@@ -141,11 +155,9 @@ export default function TaskGuardDashboard() {
       })
     );
 
-    // Persistir en Supabase si es UUID
     if (id.length > 20) {
       try {
         await supabase.from('tasks').update({ bot_access: nextValue }).eq('id', id);
-        // Registrar en auditoría
         await supabase.from('bot_audit_logs').insert([
           {
             bot_name: 'Operator',
@@ -157,7 +169,7 @@ export default function TaskGuardDashboard() {
           },
         ]);
       } catch (err) {
-        console.warn('No se pudo guardar bot_access en base remota:', err);
+        console.warn('Error sincronizando bot_access:', err);
       }
     }
   };
@@ -177,7 +189,9 @@ export default function TaskGuardDashboard() {
         priority: targetReq.payload.priority as Task['priority'],
         status: 'Pendiente',
         phi_flag: targetReq.payload.phi_flag,
-        bot_access: true, // Por defecto al aceptar del bot, se le otorga acceso controlado
+        bot_access: true,
+        due_date: targetReq.payload.due_date || '2026-10-22',
+        created_at: '2026-10-18',
       };
       setTasks((prev) => [newTask, ...prev]);
 
@@ -190,6 +204,7 @@ export default function TaskGuardDashboard() {
             phi_flag: targetReq.payload.phi_flag,
             created_by_bot: targetReq.bot_name,
             bot_access: true,
+            due_date: targetReq.payload.due_date ? new Date(targetReq.payload.due_date).toISOString() : null,
           },
         ]);
         await supabase.from('bot_authorizations').update({ status: 'approved' }).eq('id', id);
@@ -230,6 +245,8 @@ export default function TaskGuardDashboard() {
       status: 'Pendiente',
       phi_flag: newPhiFlag,
       bot_access: newBotAccess,
+      due_date: newDueDate,
+      created_at: '2026-10-18',
     };
 
     setTasks((prev) => [newTask, ...prev]);
@@ -247,11 +264,29 @@ export default function TaskGuardDashboard() {
           category: newTask.category,
           phi_flag: newTask.phi_flag,
           bot_access: newTask.bot_access,
+          due_date: new Date(newTask.due_date).toISOString(),
           quadrant: newTask.priority === 'Alta' ? 'urgent_important' : newTask.priority === 'Media' ? 'not_urgent_important' : 'not_urgent_not_important',
         },
       ]);
     } catch (err) {
       console.warn('Guardado en estado reactivo:', err);
+    }
+  };
+
+  // Función para calcular días restantes o días de retraso
+  const getDueDateStatus = (dueDateStr: string) => {
+    if (!dueDateStr) return { text: 'Sin fecha', status: 'upcoming' };
+    const today = new Date('2026-10-18'); // Fecha actual del sistema
+    const dueDate = new Date(dueDateStr);
+    const diffTime = dueDate.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays < 0) {
+      return { text: `Vencida por ${Math.abs(diffDays)} ${Math.abs(diffDays) === 1 ? 'día' : 'días'}`, status: 'expired' };
+    } else if (diffDays === 0) {
+      return { text: 'Vence HOY', status: 'today' };
+    } else {
+      return { text: `Faltan ${diffDays} ${diffDays === 1 ? 'día' : 'días'}`, status: 'upcoming' };
     }
   };
 
@@ -319,7 +354,7 @@ export default function TaskGuardDashboard() {
             </div>
           )}
 
-          {/* Filtros */}
+          {/* Filtros de Categoría */}
           <div className="flex justify-between items-center mb-6">
             <div className="flex space-x-2">
               {(['Todas', 'Clinica', 'Administrativa', 'Personal'] as const).map((tab) => (
@@ -340,87 +375,113 @@ export default function TaskGuardDashboard() {
               onClick={() => setIsModalOpen(true)}
               className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow transition cursor-pointer"
             >
-              + Nueva Tarea
+              + Nueva Cita / Actividad
             </button>
           </div>
 
-          {/* Grid de Tareas con Botón de Acceso para Bots */}
+          {/* Grid de Tareas con Alertas de Vencimiento */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredTasks.map((task) => (
-              <div
-                key={task.id}
-                className={`bg-slate-800 border rounded-xl p-4 flex flex-col justify-between transition hover:border-slate-600 ${
-                  task.phi_flag ? 'border-rose-500/50 shadow-rose-950/20 shadow-lg' : 'border-slate-700'
-                }`}
-              >
-                <div>
-                  <div className="flex justify-between items-start mb-2">
-                    <span
-                      className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
-                        task.category === 'Clinica'
-                          ? 'bg-purple-950 text-purple-300 border border-purple-800'
-                          : task.category === 'Administrativa'
-                          ? 'bg-blue-950 text-blue-300 border border-blue-800'
-                          : 'bg-slate-700 text-slate-300'
-                      }`}
-                    >
-                      {task.category === 'Clinica' ? 'Clínica' : task.category}
-                    </span>
-                    {task.phi_flag && (
-                      <span className="text-[10px] bg-rose-950 text-rose-400 border border-rose-800 px-2 py-0.5 rounded font-mono font-semibold">
-                        🔒 PHI / HIPAA
+            {filteredTasks.map((task) => {
+              const dueInfo = getDueDateStatus(task.due_date);
+
+              return (
+                <div
+                  key={task.id}
+                  className={`bg-slate-800 border rounded-xl p-4 flex flex-col justify-between transition hover:border-slate-600 ${
+                    task.phi_flag ? 'border-rose-500/50 shadow-rose-950/20 shadow-lg' : 'border-slate-700'
+                  }`}
+                >
+                  <div>
+                    <div className="flex justify-between items-start mb-2">
+                      <span
+                        className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
+                          task.category === 'Clinica'
+                            ? 'bg-purple-950 text-purple-300 border border-purple-800'
+                            : task.category === 'Administrativa'
+                            ? 'bg-blue-950 text-blue-300 border border-blue-800'
+                            : 'bg-slate-700 text-slate-300'
+                        }`}
+                      >
+                        {task.category === 'Clinica' ? 'Clínica' : task.category}
                       </span>
-                    )}
+                      {task.phi_flag && (
+                        <span className="text-[10px] bg-rose-950 text-rose-400 border border-rose-800 px-2 py-0.5 rounded font-mono font-semibold">
+                          🔒 PHI / HIPAA
+                        </span>
+                      )}
+                    </div>
+
+                    <h3 className="text-sm font-bold text-white mb-1">{task.title}</h3>
+                    <p className="text-xs text-slate-400 line-clamp-2 mb-3">{task.description}</p>
+
+                    {/* SECCIÓN DE FECHA Y ESTADO DE VENCIMIENTO VISIBLE */}
+                    <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-700/60 mb-3">
+                      <div className="flex justify-between items-center text-[11px] mb-1">
+                        <span className="text-slate-400">Fecha / Cita:</span>
+                        <span className="text-slate-200 font-mono font-bold">{task.due_date}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-[11px] pt-1 border-t border-slate-800">
+                        <span className="text-slate-400">Estado temporal:</span>
+                        <span
+                          className={`font-bold px-1.5 py-0.5 rounded text-[10px] ${
+                            dueInfo.status === 'expired'
+                              ? 'bg-rose-950 text-rose-400 border border-rose-800 animate-pulse'
+                              : dueInfo.status === 'today'
+                              ? 'bg-amber-950 text-amber-400 border border-amber-800'
+                              : 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                          }`}
+                        >
+                          {dueInfo.text}
+                        </span>
+                      </div>
+                    </div>
                   </div>
 
-                  <h3 className="text-sm font-bold text-white mb-1">{task.title}</h3>
-                  <p className="text-xs text-slate-400 line-clamp-2">{task.description}</p>
+                  <div className="pt-3 border-t border-slate-700 flex flex-col space-y-3">
+                    <div className="flex justify-between items-center text-xs">
+                      <span
+                        className={`font-semibold ${
+                          task.priority === 'Alta'
+                            ? 'text-rose-400'
+                            : task.priority === 'Media'
+                            ? 'text-amber-400'
+                            : 'text-emerald-400'
+                        }`}
+                      >
+                        Prioridad: {task.priority}
+                      </span>
+                      <span className="text-slate-400 bg-slate-900 px-2 py-1 rounded">
+                        {task.status}
+                      </span>
+                    </div>
+
+                    {/* Control de Acceso para Bots */}
+                    <div className="flex justify-between items-center bg-slate-900/60 p-2 rounded-lg border border-slate-700/50">
+                      <span className="text-[11px] text-slate-300 font-medium">Acceso para Bots:</span>
+                      <button
+                        onClick={() => toggleBotAccess(task.id)}
+                        className={`px-2.5 py-1 text-[10px] font-bold rounded transition cursor-pointer ${
+                          task.bot_access
+                            ? 'bg-emerald-950 text-emerald-400 border border-emerald-700 hover:bg-emerald-900'
+                            : 'bg-rose-950 text-rose-400 border border-rose-700 hover:bg-rose-900'
+                        }`}
+                      >
+                        {task.bot_access ? '✔ Permitido (Dots/Musa)' : '✖ Bloqueado (Privado)'}
+                      </button>
+                    </div>
+                  </div>
                 </div>
-
-                <div className="mt-4 pt-3 border-t border-slate-700 flex flex-col space-y-3">
-                  <div className="flex justify-between items-center text-xs">
-                    <span
-                      className={`font-semibold ${
-                        task.priority === 'Alta'
-                          ? 'text-rose-400'
-                          : task.priority === 'Media'
-                          ? 'text-amber-400'
-                          : 'text-emerald-400'
-                      }`}
-                    >
-                      Prioridad: {task.priority}
-                    </span>
-                    <span className="text-slate-400 bg-slate-900 px-2 py-1 rounded">
-                      {task.status}
-                    </span>
-                  </div>
-
-                  {/* NUEVO: Botón de Control de Acceso para Dots y Musa */}
-                  <div className="flex justify-between items-center bg-slate-900/60 p-2 rounded-lg border border-slate-700/50">
-                    <span className="text-[11px] text-slate-300 font-medium">Acceso para Bots:</span>
-                    <button
-                      onClick={() => toggleBotAccess(task.id)}
-                      className={`px-2.5 py-1 text-[10px] font-bold rounded transition cursor-pointer ${
-                        task.bot_access
-                          ? 'bg-emerald-950 text-emerald-400 border border-emerald-700 hover:bg-emerald-900'
-                          : 'bg-rose-950 text-rose-400 border border-rose-700 hover:bg-rose-900'
-                      }`}
-                    >
-                      {task.bot_access ? '✔ Permitido (Dots/Musa)' : '✖ Bloqueado (Privado)'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </main>
       </div>
 
-      {/* Modal Nueva Tarea */}
+      {/* Modal Nueva Tarea / Cita */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 w-full max-w-md shadow-2xl">
-            <h3 className="text-lg font-bold text-white mb-4">Nueva Actividad Médica</h3>
+            <h3 className="text-lg font-bold text-white mb-4">Nueva Cita o Actividad Médica</h3>
             <form onSubmit={handleCreateTask} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">Título *</label>
@@ -473,6 +534,17 @@ export default function TaskGuardDashboard() {
                 </div>
               </div>
 
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Fecha Límite / Cita</label>
+                <input
+                  type="date"
+                  required
+                  value={newDueDate}
+                  onChange={(e) => setNewDueDate(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
               <div className="flex items-center justify-between p-3 bg-slate-900/60 rounded-lg border border-slate-700">
                 <span className="text-xs font-semibold text-rose-300">🔒 Contiene Datos PHI (HIPAA)</span>
                 <input
@@ -505,7 +577,7 @@ export default function TaskGuardDashboard() {
                   type="submit"
                   className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold rounded-lg text-white cursor-pointer"
                 >
-                  Crear Tarea
+                  Crear Cita / Actividad
                 </button>
               </div>
             </form>
