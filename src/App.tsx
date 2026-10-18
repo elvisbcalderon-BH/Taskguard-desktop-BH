@@ -10,18 +10,18 @@ export interface Task {
   priority: 'Alta' | 'Media' | 'Baja';
   status: 'Pendiente' | 'En Progreso' | 'Completada';
   phi_flag: boolean;
+  bot_access: boolean; // NUEVO: Control explícito de acceso para Dots y Musa
 }
 
 export interface BotAuthRequest {
   id: string;
   bot_name: 'Dots' | 'Musa' | string;
   requested_action: string;
-  payload: { title: string; category: string; priority: string; description?: string };
+  payload: { title: string; category: string; priority: string; phi_flag: boolean; description?: string };
   status: 'Pendiente' | 'Aprobado' | 'Rechazado';
 }
 
 export default function TaskGuardDashboard() {
-  // Estados principales conectados con datos de Supabase + fallback
   const [tasks, setTasks] = useState<Task[]>([
     {
       id: '1',
@@ -30,16 +30,18 @@ export default function TaskGuardDashboard() {
       category: 'Clinica',
       priority: 'Alta',
       status: 'Pendiente',
-      phi_flag: true, // Contiene PHI / HIPAA
+      phi_flag: true,
+      bot_access: false, // Privado: los bots no pueden tocarlo por seguridad HIPAA
     },
     {
       id: '2',
-      title: 'Actualizar protocolo de inventario',
-      description: 'Revisar insumos médicos disponibles para la semana.',
+      title: 'Organizar agenda semanal de consultas',
+      description: 'Planificar horarios de atención y recordatorios generales.',
       category: 'Administrativa',
       priority: 'Media',
       status: 'Pendiente',
       phi_flag: false,
+      bot_access: true, // Permitido para que los bots ayuden a gestionar
     },
   ]);
 
@@ -48,7 +50,7 @@ export default function TaskGuardDashboard() {
       id: 'req-1',
       bot_name: 'Musa',
       requested_action: 'INSERT_TASK',
-      payload: { title: 'Seguimiento clínico post-operatorio', category: 'Clinica', priority: 'Alta' },
+      payload: { title: 'Seguimiento de inventario de suministros', category: 'Administrativa', priority: 'Media', phi_flag: false },
       status: 'Pendiente',
     },
   ]);
@@ -60,13 +62,14 @@ export default function TaskGuardDashboard() {
   const [newCategory, setNewCategory] = useState<'Clinica' | 'Administrativa' | 'Personal'>('Clinica');
   const [newPriority, setNewPriority] = useState<'Alta' | 'Media' | 'Baja'>('Alta');
   const [newPhiFlag, setNewPhiFlag] = useState(false);
+  const [newBotAccess, setNewBotAccess] = useState(false);
 
   // Sincronización Realtime con Supabase
   useEffect(() => {
     fetchFromSupabase();
 
     const channel = supabase
-      .channel('schema-db-changes')
+      .channel('schema-db-changes-v2')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'tasks' },
@@ -97,6 +100,7 @@ export default function TaskGuardDashboard() {
             priority: (t.quadrant === 'urgent_important' ? 'Alta' : t.quadrant === 'not_urgent_important' ? 'Media' : 'Baja'),
             status: t.status === 'completed' ? 'Completada' : t.status === 'in_progress' ? 'En Progreso' : 'Pendiente',
             phi_flag: !!t.phi_flag,
+            bot_access: t.bot_access !== undefined ? !!t.bot_access : !t.phi_flag,
           }))
         );
       }
@@ -112,6 +116,7 @@ export default function TaskGuardDashboard() {
               title: a.requested_payload?.title || 'Sin título',
               category: a.requested_payload?.category || 'Clinica',
               priority: a.requested_payload?.quadrant === 'urgent_important' ? 'Alta' : 'Media',
+              phi_flag: !!a.phi_risk_detected || !!a.requested_payload?.phi_flag,
               description: a.requested_payload?.description || '',
             },
             status: 'Pendiente',
@@ -119,11 +124,44 @@ export default function TaskGuardDashboard() {
         );
       }
     } catch (e) {
-      console.warn('Usando estado local:', e);
+      console.warn('Usando estado reactivo local:', e);
     }
   };
 
-  // Función para aprobar o rechazar solicitudes de bots
+  // Función para alternar el acceso de los bots a una tarea específica
+  const toggleBotAccess = async (id: string) => {
+    let nextValue = false;
+    setTasks((prev) =>
+      prev.map((t) => {
+        if (t.id === id) {
+          nextValue = !t.bot_access;
+          return { ...t, bot_access: nextValue };
+        }
+        return t;
+      })
+    );
+
+    // Persistir en Supabase si es UUID
+    if (id.length > 20) {
+      try {
+        await supabase.from('tasks').update({ bot_access: nextValue }).eq('id', id);
+        // Registrar en auditoría
+        await supabase.from('bot_audit_logs').insert([
+          {
+            bot_name: 'Operator',
+            action_type: nextValue ? 'BOT_ACCESS_GRANTED' : 'BOT_ACCESS_REVOKED',
+            task_id: id,
+            accessed_phi: false,
+            event_details: { new_bot_access: nextValue },
+            ip_address: '127.0.0.1',
+          },
+        ]);
+      } catch (err) {
+        console.warn('No se pudo guardar bot_access en base remota:', err);
+      }
+    }
+  };
+
   const handleBotAuth = async (id: string, decision: 'Aprobado' | 'Rechazado') => {
     setBotRequests((prev) =>
       prev.map((req) => (req.id === id ? { ...req, status: decision } : req))
@@ -134,23 +172,24 @@ export default function TaskGuardDashboard() {
       const newTask: Task = {
         id: Date.now().toString(),
         title: targetReq.payload.title,
-        description: `Aprobado automáticamente por solicitud del bot ${targetReq.bot_name}`,
+        description: `Aprobado por solicitud del bot ${targetReq.bot_name}`,
         category: targetReq.payload.category as Task['category'],
         priority: targetReq.payload.priority as Task['priority'],
         status: 'Pendiente',
-        phi_flag: true,
+        phi_flag: targetReq.payload.phi_flag,
+        bot_access: true, // Por defecto al aceptar del bot, se le otorga acceso controlado
       };
       setTasks((prev) => [newTask, ...prev]);
 
-      // Guardar en Supabase si es un UUID válido de la base
       if (id.length > 20) {
         await supabase.from('tasks').insert([
           {
             title: targetReq.payload.title,
-            description: `Aprobado por el usuario (Bot: ${targetReq.bot_name})`,
+            description: `Aprobado por solicitud del bot ${targetReq.bot_name}`,
             category: targetReq.payload.category,
-            phi_flag: true,
+            phi_flag: targetReq.payload.phi_flag,
             created_by_bot: targetReq.bot_name,
+            bot_access: true,
           },
         ]);
         await supabase.from('bot_authorizations').update({ status: 'approved' }).eq('id', id);
@@ -159,7 +198,7 @@ export default function TaskGuardDashboard() {
             bot_name: targetReq.bot_name,
             action_type: 'TASK_APPROVED',
             authorization_id: id,
-            accessed_phi: true,
+            accessed_phi: targetReq.payload.phi_flag,
             ip_address: '127.0.0.1',
           },
         ]);
@@ -178,7 +217,6 @@ export default function TaskGuardDashboard() {
     }
   };
 
-  // Crear nueva tarea manual
   const handleCreateTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
@@ -191,6 +229,7 @@ export default function TaskGuardDashboard() {
       priority: newPriority,
       status: 'Pendiente',
       phi_flag: newPhiFlag,
+      bot_access: newBotAccess,
     };
 
     setTasks((prev) => [newTask, ...prev]);
@@ -198,8 +237,8 @@ export default function TaskGuardDashboard() {
     setNewTitle('');
     setNewDesc('');
     setNewPhiFlag(false);
+    setNewBotAccess(false);
 
-    // Persistir en Supabase
     try {
       await supabase.from('tasks').insert([
         {
@@ -207,11 +246,12 @@ export default function TaskGuardDashboard() {
           description: newTask.description,
           category: newTask.category,
           phi_flag: newTask.phi_flag,
+          bot_access: newTask.bot_access,
           quadrant: newTask.priority === 'Alta' ? 'urgent_important' : newTask.priority === 'Media' ? 'not_urgent_important' : 'not_urgent_not_important',
         },
       ]);
     } catch (err) {
-      console.warn('Guardado localmente:', err);
+      console.warn('Guardado en estado reactivo:', err);
     }
   };
 
@@ -220,7 +260,7 @@ export default function TaskGuardDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans">
-      {/* Header de la App */}
+      {/* Header */}
       <header className="bg-slate-800 border-b border-slate-700 px-6 py-4 flex justify-between items-center shadow-md">
         <div className="flex items-center space-x-3">
           <div className="bg-emerald-600 text-white p-2 rounded-lg font-bold tracking-wider text-sm">TG</div>
@@ -236,9 +276,8 @@ export default function TaskGuardDashboard() {
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Contenido Principal */}
         <main className="flex-1 p-6 overflow-y-auto">
-          {/* Panel de Solicitudes Pendientes de los Bots (Human-in-the-Loop) */}
+          {/* Panel de Solicitudes de Bots */}
           {botRequests.filter((r) => r.status === 'Pendiente').length > 0 && (
             <div className="mb-6 bg-amber-950/40 border border-amber-600/50 rounded-xl p-4 shadow-lg backdrop-blur-sm">
               <h2 className="text-sm font-semibold text-amber-400 uppercase tracking-wider mb-3 flex items-center">
@@ -280,7 +319,7 @@ export default function TaskGuardDashboard() {
             </div>
           )}
 
-          {/* Filtros por Categoría */}
+          {/* Filtros */}
           <div className="flex justify-between items-center mb-6">
             <div className="flex space-x-2">
               {(['Todas', 'Clinica', 'Administrativa', 'Personal'] as const).map((tab) => (
@@ -305,7 +344,7 @@ export default function TaskGuardDashboard() {
             </button>
           </div>
 
-          {/* Grid de Tareas (Matriz / Listado) */}
+          {/* Grid de Tareas con Botón de Acceso para Bots */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredTasks.map((task) => (
               <div
@@ -328,30 +367,48 @@ export default function TaskGuardDashboard() {
                       {task.category === 'Clinica' ? 'Clínica' : task.category}
                     </span>
                     {task.phi_flag && (
-                      <span className="text-[10px] bg-rose-950 text-rose-400 border border-rose-800 px-2 py-0.5 rounded font-mono font-semibold flex items-center">
+                      <span className="text-[10px] bg-rose-950 text-rose-400 border border-rose-800 px-2 py-0.5 rounded font-mono font-semibold">
                         🔒 PHI / HIPAA
                       </span>
                     )}
                   </div>
+
                   <h3 className="text-sm font-bold text-white mb-1">{task.title}</h3>
                   <p className="text-xs text-slate-400 line-clamp-2">{task.description}</p>
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-slate-700 flex justify-between items-center text-xs">
-                  <span
-                    className={`font-semibold ${
-                      task.priority === 'Alta'
-                        ? 'text-rose-400'
-                        : task.priority === 'Media'
-                        ? 'text-amber-400'
-                        : 'text-emerald-400'
-                    }`}
-                  >
-                    Prioridad: {task.priority}
-                  </span>
-                  <span className="text-slate-400 bg-slate-900 px-2 py-1 rounded">
-                    {task.status}
-                  </span>
+                <div className="mt-4 pt-3 border-t border-slate-700 flex flex-col space-y-3">
+                  <div className="flex justify-between items-center text-xs">
+                    <span
+                      className={`font-semibold ${
+                        task.priority === 'Alta'
+                          ? 'text-rose-400'
+                          : task.priority === 'Media'
+                          ? 'text-amber-400'
+                          : 'text-emerald-400'
+                      }`}
+                    >
+                      Prioridad: {task.priority}
+                    </span>
+                    <span className="text-slate-400 bg-slate-900 px-2 py-1 rounded">
+                      {task.status}
+                    </span>
+                  </div>
+
+                  {/* NUEVO: Botón de Control de Acceso para Dots y Musa */}
+                  <div className="flex justify-between items-center bg-slate-900/60 p-2 rounded-lg border border-slate-700/50">
+                    <span className="text-[11px] text-slate-300 font-medium">Acceso para Bots:</span>
+                    <button
+                      onClick={() => toggleBotAccess(task.id)}
+                      className={`px-2.5 py-1 text-[10px] font-bold rounded transition cursor-pointer ${
+                        task.bot_access
+                          ? 'bg-emerald-950 text-emerald-400 border border-emerald-700 hover:bg-emerald-900'
+                          : 'bg-rose-950 text-rose-400 border border-rose-700 hover:bg-rose-900'
+                      }`}
+                    >
+                      {task.bot_access ? '✔ Permitido (Dots/Musa)' : '✖ Bloqueado (Privado)'}
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -423,6 +480,16 @@ export default function TaskGuardDashboard() {
                   checked={newPhiFlag}
                   onChange={(e) => setNewPhiFlag(e.target.checked)}
                   className="w-4 h-4 text-rose-600 rounded cursor-pointer"
+                />
+              </div>
+
+              <div className="flex items-center justify-between p-3 bg-slate-900/60 rounded-lg border border-slate-700">
+                <span className="text-xs font-semibold text-emerald-300">🤖 Permitir Acceso a Bots</span>
+                <input
+                  type="checkbox"
+                  checked={newBotAccess}
+                  onChange={(e) => setNewBotAccess(e.target.checked)}
+                  className="w-4 h-4 text-emerald-600 rounded cursor-pointer"
                 />
               </div>
 
