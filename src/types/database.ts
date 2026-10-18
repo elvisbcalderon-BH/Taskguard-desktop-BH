@@ -6,6 +6,8 @@ export type EisenhowerQuadrant =
 
 export type TaskStatus = 'todo' | 'in_progress' | 'completed' | 'archived';
 
+export type TaskCategory = 'Clinica' | 'Administrativa' | 'Personal';
+
 export type AuthRequestStatus = 'pending' | 'approved' | 'rejected' | 'expired';
 
 export type BotActionType =
@@ -17,11 +19,12 @@ export type BotActionType =
 
 export interface Task {
   id: string;
-  user_id: string;
+  user_id?: string | null;
   title: string;
   description: string | null;
   quadrant: EisenhowerQuadrant;
   status: TaskStatus;
+  category: TaskCategory;
   phi_flag: boolean;
   phi_encrypted_notes?: string | null;
   due_date: string | null;
@@ -32,7 +35,7 @@ export interface Task {
 
 export interface BotAuthorization {
   id: string;
-  user_id: string;
+  user_id?: string | null;
   bot_name: 'Dots' | 'Musa' | string;
   action_type: BotActionType;
   target_task_id: string | null;
@@ -40,6 +43,7 @@ export interface BotAuthorization {
     title?: string;
     description?: string;
     quadrant?: EisenhowerQuadrant;
+    category?: TaskCategory;
     phi_flag?: boolean;
     due_date?: string;
     [key: string]: unknown;
@@ -54,7 +58,7 @@ export interface BotAuthorization {
 
 export interface BotAuditLog {
   id: string;
-  user_id: string;
+  user_id?: string | null;
   bot_name: string;
   action_type: string;
   authorization_id: string | null;
