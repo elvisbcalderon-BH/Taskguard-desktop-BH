@@ -1,924 +1,450 @@
 import { useState, useEffect } from 'react';
-import { 
-  ShieldAlert, 
-  Bot, 
-  Clock, 
-  Lock, 
-  Layers, 
-  Activity, 
-  Plus, 
-  Filter,
-  CheckCircle2,
-  Trash2,
-  Edit2,
-  Wifi,
-  Radio
-} from 'lucide-react';
 import { supabase } from './lib/supabase';
-import type { Task, BotAuthorization, BotAuditLog, EisenhowerQuadrant, TaskCategory } from './types/database';
-import { TaskModal } from './components/TaskModal';
-import { BotHitlDrawer } from './components/BotHitlDrawer';
 
-export function App() {
-  const [activeTab, setActiveTab] = useState<'matrix' | 'audit'>('matrix');
-  const [selectedCategory, setSelectedCategory] = useState<TaskCategory | 'Todas'>('Todas');
-  
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [authorizations, setAuthorizations] = useState<BotAuthorization[]>([]);
-  const [auditLogs, setAuditLogs] = useState<BotAuditLog[]>([]);
+// Tipos de datos para TypeScript
+export interface Task {
+  id: string;
+  title: string;
+  description: string;
+  category: 'Clinica' | 'Administrativa' | 'Personal';
+  priority: 'Alta' | 'Media' | 'Baja';
+  status: 'Pendiente' | 'En Progreso' | 'Completada';
+  phi_flag: boolean;
+}
 
-  // Estados modales y cajón HITL
-  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
-  const [editingTask, setEditingTask] = useState<Task | null>(null);
-  const [isHitlDrawerOpen, setIsHitlDrawerOpen] = useState(false);
-  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+export interface BotAuthRequest {
+  id: string;
+  bot_name: 'Dots' | 'Musa' | string;
+  requested_action: string;
+  payload: { title: string; category: string; priority: string; description?: string };
+  status: 'Pendiente' | 'Aprobado' | 'Rechazado';
+}
 
-  // 1. CARGA INICIAL Y SUSCRIPCIÓN REALTIME CON SUPABASE
+export default function TaskGuardDashboard() {
+  // Estados principales conectados con datos de Supabase + fallback
+  const [tasks, setTasks] = useState<Task[]>([
+    {
+      id: '1',
+      title: 'Revisión de resultados de laboratorio - Paciente A',
+      description: 'Verificar valores fuera de rango y ajustar medicación.',
+      category: 'Clinica',
+      priority: 'Alta',
+      status: 'Pendiente',
+      phi_flag: true, // Contiene PHI / HIPAA
+    },
+    {
+      id: '2',
+      title: 'Actualizar protocolo de inventario',
+      description: 'Revisar insumos médicos disponibles para la semana.',
+      category: 'Administrativa',
+      priority: 'Media',
+      status: 'Pendiente',
+      phi_flag: false,
+    },
+  ]);
+
+  const [botRequests, setBotRequests] = useState<BotAuthRequest[]>([
+    {
+      id: 'req-1',
+      bot_name: 'Musa',
+      requested_action: 'INSERT_TASK',
+      payload: { title: 'Seguimiento clínico post-operatorio', category: 'Clinica', priority: 'Alta' },
+      status: 'Pendiente',
+    },
+  ]);
+
+  const [activeTab, setActiveTab] = useState<'Todas' | 'Clinica' | 'Administrativa' | 'Personal'>('Todas');
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [newDesc, setNewDesc] = useState('');
+  const [newCategory, setNewCategory] = useState<'Clinica' | 'Administrativa' | 'Personal'>('Clinica');
+  const [newPriority, setNewPriority] = useState<'Alta' | 'Media' | 'Baja'>('Alta');
+  const [newPhiFlag, setNewPhiFlag] = useState(false);
+
+  // Sincronización Realtime con Supabase
   useEffect(() => {
-    fetchInitialData();
+    fetchFromSupabase();
 
-    // Suscripción Realtime a tasks
-    const tasksChannel = supabase
-      .channel('public:tasks')
+    const channel = supabase
+      .channel('schema-db-changes')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'tasks' },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            const newTask = payload.new as Task;
-            setTasks((prev) => [newTask, ...prev.filter((t) => t.id !== newTask.id)]);
-          } else if (payload.eventType === 'UPDATE') {
-            const updated = payload.new as Task;
-            setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
-          } else if (payload.eventType === 'DELETE') {
-            const oldId = payload.old.id;
-            setTasks((prev) => prev.filter((t) => t.id !== oldId));
-          }
-        }
+        () => fetchFromSupabase()
       )
-      .subscribe();
-
-    // Suscripción Realtime a bot_authorizations
-    const hitlChannel = supabase
-      .channel('public:bot_authorizations')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'bot_authorizations' },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            const newAuth = payload.new as BotAuthorization;
-            if (newAuth.status === 'pending') {
-              setAuthorizations((prev) => [newAuth, ...prev.filter((a) => a.id !== newAuth.id)]);
-            }
-          } else if (payload.eventType === 'UPDATE') {
-            const updatedAuth = payload.new as BotAuthorization;
-            if (updatedAuth.status !== 'pending') {
-              setAuthorizations((prev) => prev.filter((a) => a.id !== updatedAuth.id));
-            } else {
-              setAuthorizations((prev) =>
-                prev.map((a) => (a.id === updatedAuth.id ? updatedAuth : a))
-              );
-            }
-          } else if (payload.eventType === 'DELETE') {
-            setAuthorizations((prev) => prev.filter((a) => a.id !== payload.old.id));
-          }
-        }
+        () => fetchFromSupabase()
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(tasksChannel);
-      supabase.removeChannel(hitlChannel);
+      supabase.removeChannel(channel);
     };
   }, []);
 
-  const fetchInitialData = async () => {
+  const fetchFromSupabase = async () => {
     try {
-      // Cargar tareas
-      const { data: tasksData, error: tasksError } = await supabase
-        .from('tasks')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (tasksError) {
-        console.warn('Cargando respaldo local de tareas:', tasksError.message);
-      } else if (tasksData) {
-        setTasks(tasksData as Task[]);
+      const { data: dbTasks } = await supabase.from('tasks').select('*');
+      if (dbTasks && dbTasks.length > 0) {
+        setTasks(
+          dbTasks.map((t) => ({
+            id: t.id,
+            title: t.title,
+            description: t.description || '',
+            category: (t.category as Task['category']) || 'Clinica',
+            priority: (t.quadrant === 'urgent_important' ? 'Alta' : t.quadrant === 'not_urgent_important' ? 'Media' : 'Baja'),
+            status: t.status === 'completed' ? 'Completada' : t.status === 'in_progress' ? 'En Progreso' : 'Pendiente',
+            phi_flag: !!t.phi_flag,
+          }))
+        );
       }
 
-      // Cargar solicitudes pendientes de bots
-      const { data: authData, error: authError } = await supabase
-        .from('bot_authorizations')
-        .select('*')
-        .eq('status', 'pending')
-        .order('created_at', { ascending: false });
-
-      if (authError) {
-        console.warn('Cargando respaldo de autorizaciones:', authError.message);
-      } else if (authData) {
-        setAuthorizations(authData as BotAuthorization[]);
-      }
-
-      // Cargar registros de auditoría
-      const { data: logsData, error: logsError } = await supabase
-        .from('bot_audit_logs')
-        .select('*')
-        .order('timestamp', { ascending: false })
-        .limit(50);
-
-      if (logsError) {
-        console.warn('Cargando auditoría:', logsError.message);
-      } else if (logsData) {
-        setAuditLogs(logsData as BotAuditLog[]);
-      }
-    } catch (err) {
-      console.error('Error fetching Supabase data:', err);
-    }
-  };
-
-  // 2. CREAR O EDITAR TAREA
-  const handleSaveTask = async (taskData: Partial<Task>) => {
-    try {
-      if (editingTask) {
-        // Actualizar
-        const { data, error } = await supabase
-          .from('tasks')
-          .update(taskData)
-          .eq('id', editingTask.id)
-          .select()
-          .single();
-
-        if (error) throw error;
-        if (data) {
-          setTasks((prev) => prev.map((t) => (t.id === data.id ? (data as Task) : t)));
-        }
-      } else {
-        // Crear
-        const { data, error } = await supabase
-          .from('tasks')
-          .insert([taskData])
-          .select()
-          .single();
-
-        if (error) throw error;
-        if (data) {
-          setTasks((prev) => [data as Task, ...prev]);
-        }
-      }
-      setEditingTask(null);
-    } catch (err) {
-      console.error('Error guardando tarea en Supabase:', err);
-    }
-  };
-
-  // 3. ELIMINAR TAREA
-  const handleDeleteTask = async (id: string) => {
-    try {
-      const { error } = await supabase.from('tasks').delete().eq('id', id);
-      if (error) throw error;
-      setTasks((prev) => prev.filter((t) => t.id !== id));
-    } catch (err) {
-      console.error('Error eliminando tarea:', err);
-    }
-  };
-
-  // 4. CAMBIAR ESTADO RÁPIDO DE TAREA (TOGGLE COMPLETADA)
-  const handleToggleTaskStatus = async (task: Task) => {
-    const nextStatus = task.status === 'completed' ? 'todo' : 'completed';
-    try {
-      const { data, error } = await supabase
-        .from('tasks')
-        .update({ status: nextStatus })
-        .eq('id', task.id)
-        .select()
-        .single();
-
-      if (error) throw error;
-      if (data) {
-        setTasks((prev) => prev.map((t) => (t.id === data.id ? (data as Task) : t)));
-      }
-    } catch (err) {
-      console.error('Error actualizando estado de tarea:', err);
-    }
-  };
-
-  // 5. RESOLVER AUTORIZACIÓN HITL (Dots / Musa)
-  const handleResolveAuth = async (id: string, approve: boolean, rejectionReason?: string) => {
-    const target = authorizations.find((a) => a.id === id);
-    if (!target) return;
-
-    setActionLoadingId(id);
-    try {
-      let createdTaskId: string | null = null;
-
-      if (approve) {
-        // 1. Insertar tarea en la tabla tasks
-        const { data: createdTask, error: taskErr } = await supabase
-          .from('tasks')
-          .insert([
-            {
-              title: target.requested_payload.title || 'Nueva actividad por bot',
-              description: target.requested_payload.description || '',
-              quadrant: target.requested_payload.quadrant || 'urgent_important',
-              category: target.requested_payload.category || 'Clinica',
-              phi_flag: !!target.requested_payload.phi_flag,
-              due_date: target.requested_payload.due_date || null,
-              created_by_bot: target.bot_name,
+      const { data: dbAuths } = await supabase.from('bot_authorizations').select('*').eq('status', 'pending');
+      if (dbAuths && dbAuths.length > 0) {
+        setBotRequests(
+          dbAuths.map((a) => ({
+            id: a.id,
+            bot_name: a.bot_name as 'Dots' | 'Musa',
+            requested_action: a.action_type || 'INSERT_TASK',
+            payload: {
+              title: a.requested_payload?.title || 'Sin título',
+              category: a.requested_payload?.category || 'Clinica',
+              priority: a.requested_payload?.quadrant === 'urgent_important' ? 'Alta' : 'Media',
+              description: a.requested_payload?.description || '',
             },
-          ])
-          .select()
-          .single();
-
-        if (taskErr) throw taskErr;
-        if (createdTask) {
-          createdTaskId = createdTask.id;
-          setTasks((prev) => [createdTask as Task, ...prev]);
-        }
+            status: 'Pendiente',
+          }))
+        );
       }
-
-      // 2. Actualizar estado en bot_authorizations
-      const { error: authErr } = await supabase
-        .from('bot_authorizations')
-        .update({
-          status: approve ? 'approved' : 'rejected',
-          reviewed_at: new Date().toISOString(),
-          target_task_id: createdTaskId,
-          rejection_reason: rejectionReason || null,
-        })
-        .eq('id', id);
-
-      if (authErr) throw authErr;
-
-      // 3. Registrar en bitácora inmutable de auditoría (bot_audit_logs)
-      const auditPayload: Partial<BotAuditLog> = {
-        bot_name: target.bot_name,
-        action_type: approve ? `${target.action_type}_APPROVED` : `${target.action_type}_REJECTED`,
-        authorization_id: target.id,
-        task_id: createdTaskId,
-        accessed_phi: target.phi_risk_detected,
-        ip_address: '127.0.0.1 (Desktop Operator)',
-        user_agent: 'TaskGuard-HITL/1.0',
-        event_details: {
-          decision: approve ? 'APPROVED' : 'REJECTED',
-          reason: rejectionReason || null,
-          payload: target.requested_payload,
-        },
-        timestamp: new Date().toISOString(),
-      };
-
-      const { data: logData } = await supabase
-        .from('bot_audit_logs')
-        .insert([auditPayload])
-        .select()
-        .single();
-
-      if (logData) {
-        setAuditLogs((prev) => [logData as BotAuditLog, ...prev]);
-      }
-
-      // Remover de la cola pendiente en el estado local
-      setAuthorizations((prev) => prev.filter((a) => a.id !== id));
-    } catch (err) {
-      console.error('Error resolviendo autorización HITL:', err);
-    } finally {
-      setActionLoadingId(null);
+    } catch (e) {
+      console.warn('Usando estado local:', e);
     }
   };
 
-  // Filtrado de cuadrante + categoría
-  const getQuadrantTasks = (quadrant: EisenhowerQuadrant) => {
-    return tasks.filter((t) => {
-      const matchQuadrant = t.quadrant === quadrant;
-      const matchCategory =
-        selectedCategory === 'Todas' ? true : t.category === selectedCategory;
-      return matchQuadrant && matchCategory;
-    });
+  // Función para aprobar o rechazar solicitudes de bots
+  const handleBotAuth = async (id: string, decision: 'Aprobado' | 'Rechazado') => {
+    setBotRequests((prev) =>
+      prev.map((req) => (req.id === id ? { ...req, status: decision } : req))
+    );
+
+    const targetReq = botRequests.find((r) => r.id === id);
+    if (decision === 'Aprobado' && targetReq) {
+      const newTask: Task = {
+        id: Date.now().toString(),
+        title: targetReq.payload.title,
+        description: `Aprobado automáticamente por solicitud del bot ${targetReq.bot_name}`,
+        category: targetReq.payload.category as Task['category'],
+        priority: targetReq.payload.priority as Task['priority'],
+        status: 'Pendiente',
+        phi_flag: true,
+      };
+      setTasks((prev) => [newTask, ...prev]);
+
+      // Guardar en Supabase si es un UUID válido de la base
+      if (id.length > 20) {
+        await supabase.from('tasks').insert([
+          {
+            title: targetReq.payload.title,
+            description: `Aprobado por el usuario (Bot: ${targetReq.bot_name})`,
+            category: targetReq.payload.category,
+            phi_flag: true,
+            created_by_bot: targetReq.bot_name,
+          },
+        ]);
+        await supabase.from('bot_authorizations').update({ status: 'approved' }).eq('id', id);
+        await supabase.from('bot_audit_logs').insert([
+          {
+            bot_name: targetReq.bot_name,
+            action_type: 'TASK_APPROVED',
+            authorization_id: id,
+            accessed_phi: true,
+            ip_address: '127.0.0.1',
+          },
+        ]);
+      }
+    } else if (decision === 'Rechazado' && targetReq && id.length > 20) {
+      await supabase.from('bot_authorizations').update({ status: 'rejected' }).eq('id', id);
+      await supabase.from('bot_audit_logs').insert([
+        {
+          bot_name: targetReq.bot_name,
+          action_type: 'TASK_REJECTED',
+          authorization_id: id,
+          accessed_phi: false,
+          ip_address: '127.0.0.1',
+        },
+      ]);
+    }
   };
+
+  // Crear nueva tarea manual
+  const handleCreateTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTitle.trim()) return;
+
+    const newTask: Task = {
+      id: Date.now().toString(),
+      title: newTitle.trim(),
+      description: newDesc.trim(),
+      category: newCategory,
+      priority: newPriority,
+      status: 'Pendiente',
+      phi_flag: newPhiFlag,
+    };
+
+    setTasks((prev) => [newTask, ...prev]);
+    setIsModalOpen(false);
+    setNewTitle('');
+    setNewDesc('');
+    setNewPhiFlag(false);
+
+    // Persistir en Supabase
+    try {
+      await supabase.from('tasks').insert([
+        {
+          title: newTask.title,
+          description: newTask.description,
+          category: newTask.category,
+          phi_flag: newTask.phi_flag,
+          quadrant: newTask.priority === 'Alta' ? 'urgent_important' : newTask.priority === 'Media' ? 'not_urgent_important' : 'not_urgent_not_important',
+        },
+      ]);
+    } catch (err) {
+      console.warn('Guardado localmente:', err);
+    }
+  };
+
+  const filteredTasks =
+    activeTab === 'Todas' ? tasks : tasks.filter((t) => t.category === activeTab);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-      {/* HEADER DE SEGURIDAD */}
-      <header
-        style={{
-          borderBottom: '1px solid var(--border-subtle)',
-          padding: '14px 24px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          background: 'rgba(15, 23, 42, 0.95)',
-          backdropFilter: 'blur(10px)',
-          zIndex: 100,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-          <div
-            style={{
-              padding: '10px',
-              borderRadius: '10px',
-              background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
-              color: '#fff',
-              display: 'flex',
-            }}
-          >
-            <Lock size={20} />
-          </div>
+    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans">
+      {/* Header de la App */}
+      <header className="bg-slate-800 border-b border-slate-700 px-6 py-4 flex justify-between items-center shadow-md">
+        <div className="flex items-center space-x-3">
+          <div className="bg-emerald-600 text-white p-2 rounded-lg font-bold tracking-wider text-sm">TG</div>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <h1 style={{ fontSize: '18px', fontWeight: '800', letterSpacing: '-0.3px' }}>
-                TaskGuard Desktop
-              </h1>
-              <span
-                style={{
-                  fontSize: '11px',
-                  fontWeight: '800',
-                  padding: '2px 8px',
-                  borderRadius: '20px',
-                  backgroundColor: 'var(--color-phi-bg)',
-                  color: 'var(--color-phi)',
-                  border: '1px solid rgba(244, 63, 94, 0.3)',
-                  textTransform: 'uppercase',
-                }}
-              >
-                HIPAA & PHI Standard
-              </span>
-              <span
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  fontSize: '11px',
-                  color: '#10b981',
-                  background: 'rgba(16, 185, 129, 0.1)',
-                  padding: '2px 7px',
-                  borderRadius: '12px',
-                  fontWeight: 600,
-                }}
-              >
-                <Radio size={12} className="pulse-icon" /> Realtime Sync
-              </span>
-            </div>
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              Priorizador Eisenhower Clínico con Protección Activa Human-in-the-Loop
-            </p>
+            <h1 className="text-xl font-bold tracking-tight text-white">TaskGuard Desktop</h1>
+            <p className="text-xs text-slate-400">Priorizador Seguro (HIPAA & PHI Compliant)</p>
           </div>
         </div>
-
-        {/* CONTROLES Y NAVEGACIÓN */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <button
-            onClick={() => setActiveTab('matrix')}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '8px 16px',
-              borderRadius: '8px',
-              fontSize: '13px',
-              fontWeight: 600,
-              color: activeTab === 'matrix' ? '#fff' : 'var(--text-muted)',
-              background: activeTab === 'matrix' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
-              border: activeTab === 'matrix' ? '1px solid rgba(59, 130, 246, 0.4)' : '1px solid transparent',
-            }}
-          >
-            <Layers size={16} /> Matriz Eisenhower
-          </button>
-
-          <button
-            onClick={() => setActiveTab('audit')}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '8px 16px',
-              borderRadius: '8px',
-              fontSize: '13px',
-              fontWeight: 600,
-              color: activeTab === 'audit' ? '#fff' : 'var(--text-muted)',
-              background: activeTab === 'audit' ? 'rgba(16, 185, 129, 0.2)' : 'transparent',
-              border: activeTab === 'audit' ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid transparent',
-            }}
-          >
-            <Activity size={16} /> Auditoría ({auditLogs.length})
-          </button>
-
-          {/* BOTÓN CAJÓN HITL BOT CON ALERTA */}
-          <button
-            onClick={() => setIsHitlDrawerOpen(true)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '8px 16px',
-              borderRadius: '8px',
-              fontSize: '13px',
-              fontWeight: 700,
-              color: '#fff',
-              background:
-                authorizations.length > 0
-                  ? 'linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)'
-                  : 'rgba(139, 92, 246, 0.2)',
-              border: '1px solid rgba(139, 92, 246, 0.4)',
-              boxShadow: authorizations.length > 0 ? '0 0 16px rgba(139, 92, 246, 0.4)' : 'none',
-            }}
-          >
-            <Bot size={16} /> Cola Bots (Dots / Musa)
-            {authorizations.length > 0 && (
-              <span
-                style={{
-                  backgroundColor: '#ef4444',
-                  color: '#fff',
-                  fontSize: '11px',
-                  fontWeight: 800,
-                  padding: '1px 7px',
-                  borderRadius: '10px',
-                }}
-              >
-                {authorizations.length}
-              </span>
-            )}
-          </button>
-
-          {/* BOTÓN CREAR TAREA */}
-          <button
-            onClick={() => {
-              setEditingTask(null);
-              setIsTaskModalOpen(true);
-            }}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '8px 18px',
-              borderRadius: '8px',
-              fontSize: '13px',
-              fontWeight: 700,
-              color: '#fff',
-              background: '#3b82f6',
-              boxShadow: '0 2px 10px rgba(59, 130, 246, 0.3)',
-            }}
-          >
-            <Plus size={16} /> Nueva Tarea
-          </button>
+        <div className="flex items-center space-x-2">
+          <span className="inline-block w-3 h-3 bg-emerald-500 rounded-full animate-pulse"></span>
+          <span className="text-xs text-emerald-400 font-medium">Supabase Conectado</span>
         </div>
       </header>
 
-      {/* BARRA DE FILTROS POR CATEGORÍA */}
-      <div
-        style={{
-          padding: '10px 24px',
-          borderBottom: '1px solid var(--border-subtle)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          background: 'rgba(15, 23, 42, 0.6)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Filter size={15} style={{ color: 'var(--text-muted)' }} />
-          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginRight: '6px' }}>
-            FILTRAR POR CATEGORÍA:
-          </span>
-
-          {(['Todas', 'Clinica', 'Administrativa', 'Personal'] as const).map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setSelectedCategory(cat)}
-              style={{
-                fontSize: '12px',
-                padding: '4px 12px',
-                borderRadius: '6px',
-                fontWeight: 600,
-                color: selectedCategory === cat ? '#fff' : 'var(--text-dim)',
-                background:
-                  selectedCategory === cat ? 'rgba(59, 130, 246, 0.25)' : 'rgba(255, 255, 255, 0.03)',
-                border:
-                  selectedCategory === cat ? '1px solid rgba(59, 130, 246, 0.5)' : '1px solid transparent',
-              }}
-            >
-              {cat === 'Clinica' ? 'Clínica' : cat}
-            </button>
-          ))}
-        </div>
-
-        <div style={{ fontSize: '12px', color: 'var(--text-dim)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <Wifi size={14} style={{ color: '#10b981' }} />
-          <span>Conectado a Supabase PostgreSQL ({tasks.length} tareas cargadas)</span>
-        </div>
-      </div>
-
-      {/* ÁREA DE CONTENIDO */}
-      <main style={{ flex: 1, padding: '20px 24px', overflowY: 'auto' }}>
-        {/* TAB 1: MATRIZ DE EISENHOWER */}
-        {activeTab === 'matrix' && (
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(2, 1fr)',
-              gap: '16px',
-              height: '100%',
-              minHeight: '620px',
-            }}
-          >
-            {/* Q1: URGENTE & IMPORTANTE */}
-            <div
-              className="glass-panel"
-              style={{ padding: '16px', display: 'flex', flexDirection: 'column', borderColor: 'rgba(239, 68, 68, 0.3)' }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: 'var(--color-q1)', boxShadow: '0 0 10px rgba(239, 68, 68, 0.6)' }} />
-                  <div>
-                    <h3 style={{ fontSize: '13px', fontWeight: 800, color: '#f87171' }}>Q1: CRÍTICO / CRISIS</h3>
-                    <p style={{ fontSize: '11px', color: 'var(--text-dim)' }}>Hacer de inmediato (Urgente e Importante)</p>
-                  </div>
-                </div>
-                <span style={{ fontSize: '12px', color: '#f87171', fontWeight: 700, background: 'rgba(239,68,68,0.1)', padding: '2px 8px', borderRadius: '10px' }}>
-                  {getQuadrantTasks('urgent_important').length}
-                </span>
-              </div>
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '10px', overflowY: 'auto' }}>
-                {getQuadrantTasks('urgent_important').map((t) => (
-                  <TaskCard
-                    key={t.id}
-                    task={t}
-                    onToggle={handleToggleTaskStatus}
-                    onEdit={(task) => {
-                      setEditingTask(task);
-                      setIsTaskModalOpen(true);
-                    }}
-                    onDelete={handleDeleteTask}
-                  />
-                ))}
-              </div>
-            </div>
-
-            {/* Q2: NO URGENTE & IMPORTANTE */}
-            <div
-              className="glass-panel"
-              style={{ padding: '16px', display: 'flex', flexDirection: 'column', borderColor: 'rgba(59, 130, 246, 0.3)' }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: 'var(--color-q2)', boxShadow: '0 0 10px rgba(59, 130, 246, 0.6)' }} />
-                  <div>
-                    <h3 style={{ fontSize: '13px', fontWeight: 800, color: '#60a5fa' }}>Q2: ESTRATÉGICO</h3>
-                    <p style={{ fontSize: '11px', color: 'var(--text-dim)' }}>Planificar / Agendar (No Urgente pero Importante)</p>
-                  </div>
-                </div>
-                <span style={{ fontSize: '12px', color: '#60a5fa', fontWeight: 700, background: 'rgba(59,130,246,0.1)', padding: '2px 8px', borderRadius: '10px' }}>
-                  {getQuadrantTasks('not_urgent_important').length}
-                </span>
-              </div>
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '10px', overflowY: 'auto' }}>
-                {getQuadrantTasks('not_urgent_important').map((t) => (
-                  <TaskCard
-                    key={t.id}
-                    task={t}
-                    onToggle={handleToggleTaskStatus}
-                    onEdit={(task) => {
-                      setEditingTask(task);
-                      setIsTaskModalOpen(true);
-                    }}
-                    onDelete={handleDeleteTask}
-                  />
-                ))}
-              </div>
-            </div>
-
-            {/* Q3: URGENTE & NO IMPORTANTE */}
-            <div
-              className="glass-panel"
-              style={{ padding: '16px', display: 'flex', flexDirection: 'column', borderColor: 'rgba(245, 158, 11, 0.3)' }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: 'var(--color-q3)', boxShadow: '0 0 10px rgba(245, 158, 11, 0.6)' }} />
-                  <div>
-                    <h3 style={{ fontSize: '13px', fontWeight: 800, color: '#fbbf24' }}>Q3: DELEGAR</h3>
-                    <p style={{ fontSize: '11px', color: 'var(--text-dim)' }}>Interrupciones / Solicitudes Bots (Urgente pero No Importante)</p>
-                  </div>
-                </div>
-                <span style={{ fontSize: '12px', color: '#fbbf24', fontWeight: 700, background: 'rgba(245,158,11,0.1)', padding: '2px 8px', borderRadius: '10px' }}>
-                  {getQuadrantTasks('urgent_not_important').length}
-                </span>
-              </div>
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '10px', overflowY: 'auto' }}>
-                {getQuadrantTasks('urgent_not_important').map((t) => (
-                  <TaskCard
-                    key={t.id}
-                    task={t}
-                    onToggle={handleToggleTaskStatus}
-                    onEdit={(task) => {
-                      setEditingTask(task);
-                      setIsTaskModalOpen(true);
-                    }}
-                    onDelete={handleDeleteTask}
-                  />
-                ))}
-              </div>
-            </div>
-
-            {/* Q4: NO URGENTE & NO IMPORTANTE */}
-            <div
-              className="glass-panel"
-              style={{ padding: '16px', display: 'flex', flexDirection: 'column', borderColor: 'rgba(16, 185, 129, 0.3)' }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: 'var(--color-q4)', boxShadow: '0 0 10px rgba(16, 185, 129, 0.6)' }} />
-                  <div>
-                    <h3 style={{ fontSize: '13px', fontWeight: 800, color: '#34d399' }}>Q4: DESCARTAR</h3>
-                    <p style={{ fontSize: '11px', color: 'var(--text-dim)' }}>Baja prioridad o tareas innecesarias</p>
-                  </div>
-                </div>
-                <span style={{ fontSize: '12px', color: '#34d399', fontWeight: 700, background: 'rgba(16,185,129,0.1)', padding: '2px 8px', borderRadius: '10px' }}>
-                  {getQuadrantTasks('not_urgent_not_important').length}
-                </span>
-              </div>
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '10px', overflowY: 'auto' }}>
-                {getQuadrantTasks('not_urgent_not_important').map((t) => (
-                  <TaskCard
-                    key={t.id}
-                    task={t}
-                    onToggle={handleToggleTaskStatus}
-                    onEdit={(task) => {
-                      setEditingTask(task);
-                      setIsTaskModalOpen(true);
-                    }}
-                    onDelete={handleDeleteTask}
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 2: AUDITORÍA MÉDICA */}
-        {activeTab === 'audit' && (
-          <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
-            <div style={{ marginBottom: '20px' }}>
-              <h2 style={{ fontSize: '20px', fontWeight: 800, marginBottom: '6px' }}>
-                Bitácora Inmutable de Auditoría HIPAA
+      <div className="flex flex-1 overflow-hidden">
+        {/* Contenido Principal */}
+        <main className="flex-1 p-6 overflow-y-auto">
+          {/* Panel de Solicitudes Pendientes de los Bots (Human-in-the-Loop) */}
+          {botRequests.filter((r) => r.status === 'Pendiente').length > 0 && (
+            <div className="mb-6 bg-amber-950/40 border border-amber-600/50 rounded-xl p-4 shadow-lg backdrop-blur-sm">
+              <h2 className="text-sm font-semibold text-amber-400 uppercase tracking-wider mb-3 flex items-center">
+                <span className="mr-2">⚠️</span> Autorización Requerida para Bots (Dots / Musa)
               </h2>
-              <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                Trazabilidad completa de las aprobaciones humanas sobre solicitudes originadas por bots inteligentes.
-              </p>
-            </div>
-
-            <div className="glass-panel" style={{ overflow: 'hidden' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
-                <thead>
-                  <tr style={{ background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid var(--border-subtle)' }}>
-                    <th style={{ padding: '12px 16px', color: 'var(--text-dim)', fontWeight: 600 }}>TIMESTAMP</th>
-                    <th style={{ padding: '12px 16px', color: 'var(--text-dim)', fontWeight: 600 }}>BOT / AGENTE</th>
-                    <th style={{ padding: '12px 16px', color: 'var(--text-dim)', fontWeight: 600 }}>ACCIÓN REGISTRADA</th>
-                    <th style={{ padding: '12px 16px', color: 'var(--text-dim)', fontWeight: 600 }}>DATOS PHI</th>
-                    <th style={{ padding: '12px 16px', color: 'var(--text-dim)', fontWeight: 600 }}>ORIGEN</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {auditLogs.map((log) => (
-                    <tr key={log.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                      <td style={{ padding: '14px 16px', fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-muted)' }}>
-                        {new Date(log.timestamp).toLocaleString()}
-                      </td>
-                      <td style={{ padding: '14px 16px', fontWeight: 700, color: log.bot_name === 'Dots' ? 'var(--accent-dots)' : 'var(--accent-musa)' }}>
-                        {log.bot_name}
-                      </td>
-                      <td style={{ padding: '14px 16px', fontFamily: 'var(--font-mono)', fontSize: '12px' }}>
-                        {log.action_type}
-                      </td>
-                      <td style={{ padding: '14px 16px' }}>
-                        {log.accessed_phi ? (
-                          <span
-                            style={{
-                              padding: '2px 8px',
-                              borderRadius: '4px',
-                              backgroundColor: 'var(--color-phi-bg)',
-                              color: 'var(--color-phi)',
-                              fontWeight: 800,
-                              fontSize: '11px',
-                            }}
-                          >
-                            PHI SENSIBLE
-                          </span>
-                        ) : (
-                          <span style={{ color: 'var(--text-dim)', fontSize: '11px' }}>NO PHI</span>
-                        )}
-                      </td>
-                      <td style={{ padding: '14px 16px', color: 'var(--text-muted)', fontSize: '12px' }}>
-                        {log.ip_address}
-                      </td>
-                    </tr>
+              <div className="space-y-3">
+                {botRequests
+                  .filter((r) => r.status === 'Pendiente')
+                  .map((req) => (
+                    <div
+                      key={req.id}
+                      className="bg-slate-800/80 p-3 rounded-lg border border-slate-700 flex justify-between items-center"
+                    >
+                      <div>
+                        <p className="text-sm font-medium text-white">
+                          El bot <span className="text-amber-400 font-bold">{req.bot_name}</span> solicita registrar una tarea:
+                        </p>
+                        <p className="text-xs text-slate-300 mt-1 font-mono bg-slate-900/50 p-1.5 rounded">
+                          "{req.payload.title}" [{req.payload.category} - {req.payload.priority}]
+                        </p>
+                      </div>
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => handleBotAuth(req.id, 'Aprobado')}
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded transition cursor-pointer"
+                        >
+                          Aprobar
+                        </button>
+                        <button
+                          onClick={() => handleBotAuth(req.id, 'Rechazado')}
+                          className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold rounded transition cursor-pointer"
+                        >
+                          Rechazar
+                        </button>
+                      </div>
+                    </div>
                   ))}
-                  {auditLogs.length === 0 && (
-                    <tr>
-                      <td colSpan={5} style={{ padding: '30px', textAlign: 'center', color: 'var(--text-dim)' }}>
-                        No hay registros de auditoría aún.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+              </div>
             </div>
-          </div>
-        )}
-      </main>
+          )}
 
-      {/* MODAL CREAR / EDITAR TAREA */}
-      <TaskModal
-        isOpen={isTaskModalOpen}
-        onClose={() => setIsTaskModalOpen(false)}
-        onSave={handleSaveTask}
-        initialTask={editingTask}
-      />
-
-      {/* CAJÓN HITL BOT FLOTANTE */}
-      <BotHitlDrawer
-        isOpen={isHitlDrawerOpen}
-        onClose={() => setIsHitlDrawerOpen(false)}
-        authorizations={authorizations}
-        onResolve={handleResolveAuth}
-        loadingId={actionLoadingId}
-      />
-    </div>
-  );
-}
-
-// TARJETA DE TAREA INDIVIDUAL
-function TaskCard({
-  task,
-  onToggle,
-  onEdit,
-  onDelete,
-}: {
-  task: Task;
-  onToggle: (t: Task) => void;
-  onEdit: (t: Task) => void;
-  onDelete: (id: string) => void;
-}) {
-  const isCompleted = task.status === 'completed';
-
-  return (
-    <div
-      style={{
-        background: isCompleted ? 'rgba(255, 255, 255, 0.015)' : 'rgba(255, 255, 255, 0.035)',
-        borderRadius: '10px',
-        padding: '12px 14px',
-        border: task.phi_flag
-          ? '1px solid rgba(244, 63, 94, 0.3)'
-          : '1px solid var(--border-subtle)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '6px',
-        transition: 'all 0.2s ease',
-        opacity: isCompleted ? 0.6 : 1,
-      }}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', flex: 1 }}>
-          <button
-            onClick={() => onToggle(task)}
-            style={{
-              background: 'transparent',
-              color: isCompleted ? '#10b981' : 'var(--text-dim)',
-              marginTop: '1px',
-              padding: 0,
-              display: 'flex',
-            }}
-          >
-            <CheckCircle2 size={16} />
-          </button>
-          <div>
-            <h4
-              style={{
-                fontSize: '13px',
-                fontWeight: 600,
-                color: isCompleted ? 'var(--text-muted)' : '#f8fafc',
-                lineHeight: '1.4',
-                textDecoration: isCompleted ? 'line-through' : 'none',
-              }}
+          {/* Filtros por Categoría */}
+          <div className="flex justify-between items-center mb-6">
+            <div className="flex space-x-2">
+              {(['Todas', 'Clinica', 'Administrativa', 'Personal'] as const).map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`px-4 py-2 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                    activeTab === tab
+                      ? 'bg-blue-600 text-white shadow-lg'
+                      : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
+                  }`}
+                >
+                  {tab === 'Clinica' ? 'Clínica' : tab}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow transition cursor-pointer"
             >
-              {task.title}
-            </h4>
+              + Nueva Tarea
+            </button>
           </div>
-        </div>
 
-        {/* INDICADOR PHI DESTACADO */}
-        {task.phi_flag && (
-          <span
-            style={{
-              fontSize: '10px',
-              padding: '2px 7px',
-              borderRadius: '4px',
-              backgroundColor: 'var(--color-phi-bg)',
-              color: 'var(--color-phi)',
-              fontWeight: 800,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              border: '1px solid rgba(244, 63, 94, 0.3)',
-              letterSpacing: '0.3px',
-            }}
-          >
-            <ShieldAlert size={12} /> PHI
-          </span>
-        )}
+          {/* Grid de Tareas (Matriz / Listado) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredTasks.map((task) => (
+              <div
+                key={task.id}
+                className={`bg-slate-800 border rounded-xl p-4 flex flex-col justify-between transition hover:border-slate-600 ${
+                  task.phi_flag ? 'border-rose-500/50 shadow-rose-950/20 shadow-lg' : 'border-slate-700'
+                }`}
+              >
+                <div>
+                  <div className="flex justify-between items-start mb-2">
+                    <span
+                      className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
+                        task.category === 'Clinica'
+                          ? 'bg-purple-950 text-purple-300 border border-purple-800'
+                          : task.category === 'Administrativa'
+                          ? 'bg-blue-950 text-blue-300 border border-blue-800'
+                          : 'bg-slate-700 text-slate-300'
+                      }`}
+                    >
+                      {task.category === 'Clinica' ? 'Clínica' : task.category}
+                    </span>
+                    {task.phi_flag && (
+                      <span className="text-[10px] bg-rose-950 text-rose-400 border border-rose-800 px-2 py-0.5 rounded font-mono font-semibold flex items-center">
+                        🔒 PHI / HIPAA
+                      </span>
+                    )}
+                  </div>
+                  <h3 className="text-sm font-bold text-white mb-1">{task.title}</h3>
+                  <p className="text-xs text-slate-400 line-clamp-2">{task.description}</p>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-slate-700 flex justify-between items-center text-xs">
+                  <span
+                    className={`font-semibold ${
+                      task.priority === 'Alta'
+                        ? 'text-rose-400'
+                        : task.priority === 'Media'
+                        ? 'text-amber-400'
+                        : 'text-emerald-400'
+                    }`}
+                  >
+                    Prioridad: {task.priority}
+                  </span>
+                  <span className="text-slate-400 bg-slate-900 px-2 py-1 rounded">
+                    {task.status}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </main>
       </div>
 
-      {task.description && (
-        <p
-          style={{
-            fontSize: '12px',
-            color: 'var(--text-muted)',
-            lineHeight: '1.4',
-            paddingLeft: '24px',
-          }}
-        >
-          {task.description}
-        </p>
+      {/* Modal Nueva Tarea */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 w-full max-w-md shadow-2xl">
+            <h3 className="text-lg font-bold text-white mb-4">Nueva Actividad Médica</h3>
+            <form onSubmit={handleCreateTask} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Título *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej: Evaluación cardiológica Sala 4"
+                  value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Descripción</label>
+                <textarea
+                  rows={2}
+                  placeholder="Detalles clínicos o administrativos..."
+                  value={newDesc}
+                  onChange={(e) => setNewDesc(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Categoría</label>
+                  <select
+                    value={newCategory}
+                    onChange={(e) => setNewCategory(e.target.value as any)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-sm text-white focus:outline-none"
+                  >
+                    <option value="Clinica">Clínica</option>
+                    <option value="Administrativa">Administrativa</option>
+                    <option value="Personal">Personal</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Prioridad</label>
+                  <select
+                    value={newPriority}
+                    onChange={(e) => setNewPriority(e.target.value as any)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-sm text-white focus:outline-none"
+                  >
+                    <option value="Alta">Alta</option>
+                    <option value="Media">Media</option>
+                    <option value="Baja">Baja</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between p-3 bg-slate-900/60 rounded-lg border border-slate-700">
+                <span className="text-xs font-semibold text-rose-300">🔒 Contiene Datos PHI (HIPAA)</span>
+                <input
+                  type="checkbox"
+                  checked={newPhiFlag}
+                  onChange={(e) => setNewPhiFlag(e.target.checked)}
+                  className="w-4 h-4 text-rose-600 rounded cursor-pointer"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-xs font-semibold rounded-lg text-slate-200 cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold rounded-lg text-white cursor-pointer"
+                >
+                  Crear Tarea
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
-
-      {/* PIE DE TARJETA: METADATOS Y ACCIONES */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginTop: '6px',
-          paddingTop: '6px',
-          borderTop: '1px solid rgba(255, 255, 255, 0.04)',
-          fontSize: '11px',
-          color: 'var(--text-dim)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {task.category && (
-            <span
-              style={{
-                background: 'rgba(255, 255, 255, 0.05)',
-                padding: '1px 6px',
-                borderRadius: '4px',
-                fontWeight: 600,
-              }}
-            >
-              {task.category}
-            </span>
-          )}
-
-          {task.created_by_bot ? (
-            <span
-              style={{
-                color: task.created_by_bot === 'Dots' ? 'var(--accent-dots)' : 'var(--accent-musa)',
-                fontWeight: 700,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '3px',
-              }}
-            >
-              <Bot size={11} /> {task.created_by_bot}
-            </span>
-          ) : (
-            <span>Manual</span>
-          )}
-
-          {task.due_date && (
-            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <Clock size={11} /> {new Date(task.due_date).toLocaleDateString()}
-            </span>
-          )}
-        </div>
-
-        {/* BOTONES ACCIÓN EDITAR / ELIMINAR */}
-        <div style={{ display: 'flex', gap: '4px' }}>
-          <button
-            onClick={() => onEdit(task)}
-            style={{
-              background: 'transparent',
-              color: 'var(--text-muted)',
-              padding: '3px',
-              borderRadius: '4px',
-              display: 'flex',
-            }}
-          >
-            <Edit2 size={13} />
-          </button>
-          <button
-            onClick={() => onDelete(task.id)}
-            style={{
-              background: 'transparent',
-              color: '#ef4444',
-              padding: '3px',
-              borderRadius: '4px',
-              display: 'flex',
-            }}
-          >
-            <Trash2 size={13} />
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
-
-export default App;
