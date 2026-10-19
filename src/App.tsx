@@ -20,7 +20,7 @@ export default function TaskGuardDashboard() {
     {
       id: '1',
       title: 'Chat GPT (Blessing Hands)',
-      description: 'Suscripción mensual de IA para la empresa.',
+      description: 'Suscripción mensual de IA corporativa para operaciones y redacción.',
       category: 'Negocio (BH)',
       priority: 'Alta',
       amount: 55,
@@ -32,49 +32,38 @@ export default function TaskGuardDashboard() {
     },
     {
       id: '2',
-      title: 'BH Cell Phone (Blessing Hands)',
-      description: 'Línea telefónica corporativa BH.',
-      category: 'Negocio (BH)',
+      title: 'Revisión de resultados de laboratorio - Paciente A',
+      description: 'Verificar valores críticos en gabinete clínico y ajustar dosis.',
+      category: 'Clinica',
       priority: 'Alta',
-      amount: 9,
+      amount: 0,
       status: 'Pendiente',
-      phi_flag: false,
-      bot_access: true,
-      due_date: '2026-10-19',
-      recurring_monthly: true,
+      phi_flag: true, // Datos médicos protegidos
+      bot_access: false,
+      due_date: '2026-10-15',
+      recurring_monthly: false,
     },
     {
       id: '3',
-      title: 'iFax (Blessing Hands)',
-      description: 'Servicio de fax médico y administrativo BH.',
-      category: 'Negocio (BH)',
-      priority: 'Alta',
-      amount: 55,
-      status: 'Pendiente',
-      phi_flag: false,
-      bot_access: true,
-      due_date: '2026-10-24',
-      recurring_monthly: true,
-    },
-    {
-      id: '4',
       title: 'Alquiler / Hipoteca (Casa)',
-      description: 'Pago mensual de vivienda.',
+      description: 'Pago mensual correspondiente al hogar.',
       category: 'Administrativa',
       priority: 'Alta',
       amount: 1300,
       status: 'Pendiente',
       phi_flag: false,
       bot_access: false,
-      due_date: '2026-09-30',
+      due_date: '2026-10-30',
       recurring_monthly: true,
     },
   ]);
 
+  // Estado para el Filtro Activo
   const [activeTab, setActiveTab] = useState<'Todas' | 'Negocio (BH)' | 'Clinica' | 'Administrativa' | 'Personal'>('Todas');
 
-  // Estados para modales de Agregar y Editar
+  // Estados para Modales (Crear/Editar, Ver Detalles "Ojito")
   const [showAddModal, setShowAddModal] = useState(false);
+  const [viewingTask, setViewingTask] = useState<Task | null>(null); // Modal del Ojito
   const [editingTask, setEditingTask] = useState<Task | null>(null);
 
   // Campos del formulario
@@ -86,14 +75,13 @@ export default function TaskGuardDashboard() {
   const [formDueDate, setFormDueDate] = useState('');
   const [formRecurring, setFormRecurring] = useState(true);
   const [formPhi, setFormPhi] = useState(false);
-  const [formBotAccess, setFormBotAccess] = useState(true);
 
   // Sincronización Realtime con Supabase
   useEffect(() => {
     fetchFromSupabase();
 
     const channel = supabase
-      .channel('schema-db-changes-v7')
+      .channel('schema-db-changes-v8')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'tasks' },
@@ -142,11 +130,10 @@ export default function TaskGuardDashboard() {
     setFormDueDate('');
     setFormRecurring(true);
     setFormPhi(false);
-    setFormBotAccess(true);
     setShowAddModal(true);
   };
 
-  // Abrir modal para editar tarea existente
+  // Abrir modal para editar
   const openEditModal = (task: Task) => {
     setEditingTask(task);
     setFormTitle(task.title);
@@ -157,7 +144,6 @@ export default function TaskGuardDashboard() {
     setFormDueDate(task.due_date);
     setFormRecurring(task.recurring_monthly);
     setFormPhi(task.phi_flag);
-    setFormBotAccess(task.bot_access);
     setShowAddModal(true);
   };
 
@@ -167,7 +153,6 @@ export default function TaskGuardDashboard() {
     if (!formTitle || !formDueDate) return;
 
     if (editingTask) {
-      // 1. Editar existente
       setTasks((prev) =>
         prev.map((t) =>
           t.id === editingTask.id
@@ -181,7 +166,6 @@ export default function TaskGuardDashboard() {
                 due_date: formDueDate,
                 recurring_monthly: formRecurring,
                 phi_flag: formPhi,
-                bot_access: formBotAccess,
               }
             : t
         )
@@ -199,7 +183,6 @@ export default function TaskGuardDashboard() {
               due_date: new Date(formDueDate).toISOString(),
               recurring_monthly: formRecurring,
               phi_flag: formPhi,
-              bot_access: formBotAccess,
               quadrant: formPriority === 'Alta' ? 'urgent_important' : formPriority === 'Media' ? 'not_urgent_important' : 'not_urgent_not_important',
             })
             .eq('id', editingTask.id);
@@ -208,7 +191,6 @@ export default function TaskGuardDashboard() {
         }
       }
     } else {
-      // 2. Crear nueva
       const newTask: Task = {
         id: Date.now().toString(),
         title: formTitle,
@@ -218,11 +200,10 @@ export default function TaskGuardDashboard() {
         amount: Number(formAmount),
         status: 'Pendiente',
         phi_flag: formPhi,
-        bot_access: formBotAccess,
+        bot_access: formCategory !== 'Clinica',
         due_date: formDueDate,
         recurring_monthly: formRecurring,
       };
-
       setTasks((prev) => [...prev, newTask]);
 
       try {
@@ -246,7 +227,7 @@ export default function TaskGuardDashboard() {
     setShowAddModal(false);
   };
 
-  // Marcar como pagado y renovar mes automáticamente
+  // Marcar pagado y renovar mes automáticamente
   const handleMarkAsPaidAndRenew = async (id: string) => {
     let nextDateComputed = '';
 
@@ -296,7 +277,6 @@ export default function TaskGuardDashboard() {
     }
   };
 
-  // Eliminar tarea
   const handleDeleteTask = async (id: string) => {
     setTasks((prev) => prev.filter((t) => t.id !== id));
     if (id.length > 20) {
@@ -308,7 +288,6 @@ export default function TaskGuardDashboard() {
     }
   };
 
-  // Imprimir reporte
   const handlePrintReport = () => {
     window.print();
   };
@@ -331,10 +310,9 @@ export default function TaskGuardDashboard() {
     }
   };
 
+  // Filtrado estricto por categoría seleccionada
   const filteredTasks = activeTab === 'Todas' ? tasks : tasks.filter((t) => t.category === activeTab);
   const sortedTasks = [...filteredTasks].sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
-
-  const totalAmount = filteredTasks.reduce((sum, item) => sum + item.amount, 0);
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans">
@@ -348,9 +326,6 @@ export default function TaskGuardDashboard() {
           </div>
         </div>
         <div className="flex items-center space-x-3">
-          <div className="bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-700 text-xs font-mono font-bold text-emerald-400">
-            Total en Vista: ${totalAmount.toLocaleString()} USD
-          </div>
           <button
             onClick={handlePrintReport}
             className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold rounded-lg shadow transition cursor-pointer"
@@ -368,25 +343,28 @@ export default function TaskGuardDashboard() {
 
       <div className="flex flex-1 overflow-hidden">
         <main className="flex-1 p-6 overflow-y-auto">
-          {/* Pestañas de Filtro */}
-          <div className="flex justify-between items-center mb-6 print:hidden">
+          {/* BOTONES DE FILTRO RÁPIDO POR CATEGORÍA */}
+          <div className="flex flex-wrap items-center justify-between mb-6 gap-2 print:hidden">
             <div className="flex space-x-2">
               {(['Todas', 'Negocio (BH)', 'Clinica', 'Administrativa', 'Personal'] as const).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`px-4 py-2 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                    activeTab === tab ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
+                  className={`px-4 py-2 rounded-lg text-xs font-semibold transition shadow cursor-pointer ${
+                    activeTab === tab
+                      ? 'bg-blue-600 text-white ring-2 ring-blue-400'
+                      : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
                   }`}
                 >
-                  {tab === 'Clinica' ? 'Clínica' : tab}
+                  {tab === 'Clinica' ? 'Clínica' : tab}{' '}
+                  {tab === 'Todas'
+                    ? `(${tasks.length})`
+                    : `(${tasks.filter((t) => t.category === tab).length})`}
                 </button>
               ))}
             </div>
-
-            <div className="flex items-center space-x-2">
-              <span className="inline-block w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse"></span>
-              <span className="text-xs text-emerald-400 font-medium">Supabase Conectado</span>
+            <div className="text-xs text-slate-400 font-mono">
+              Mostrando: <span className="text-emerald-400 font-bold">{filteredTasks.length}</span> registros
             </div>
           </div>
 
@@ -398,94 +376,195 @@ export default function TaskGuardDashboard() {
               <div className="col-span-2">Categoría & BH</div>
               <div className="col-span-1 text-right">Monto</div>
               <div className="col-span-2">Vencimiento</div>
-              <div className="col-span-3 text-center">Acciones, Editar & Renovación</div>
+              <div className="col-span-3 text-center">Acciones (Ver, Editar, Pagar)</div>
             </div>
 
             <div className="divide-y divide-slate-700/60">
-              {sortedTasks.map((task) => {
-                const traffic = getTrafficLightStatus(task.due_date, task.priority, task.status);
+              {sortedTasks.length === 0 ? (
+                <div className="py-8 text-center text-slate-500 text-xs">
+                  No hay actividades registradas en esta categoría.
+                </div>
+              ) : (
+                sortedTasks.map((task) => {
+                  const traffic = getTrafficLightStatus(task.due_date, task.priority, task.status);
 
-                return (
-                  <div
-                    key={task.id}
-                    className="grid grid-cols-12 px-4 py-3 items-center hover:bg-slate-750/70 transition text-xs"
-                  >
-                    <div className="col-span-1 flex justify-center items-center">
-                      <span className={`w-3.5 h-3.5 rounded-full shadow-md ${traffic.indicator}`} title={traffic.text}></span>
-                    </div>
+                  return (
+                    <div
+                      key={task.id}
+                      className="grid grid-cols-12 px-4 py-3 items-center hover:bg-slate-750/70 transition text-xs"
+                    >
+                      <div className="col-span-1 flex justify-center items-center">
+                        <span className={`w-3.5 h-3.5 rounded-full shadow-md ${traffic.indicator}`} title={traffic.text}></span>
+                      </div>
 
-                    <div className="col-span-3 pr-2">
-                      <h4 className="font-bold text-white text-sm mb-0.5">{task.title}</h4>
-                      <p className="text-slate-400 text-[11px] truncate">{task.description}</p>
-                    </div>
+                      <div className="col-span-3 pr-2">
+                        <h4 className="font-bold text-white text-sm mb-0.5">{task.title}</h4>
+                        <p className="text-slate-400 text-[11px] truncate">{task.description}</p>
+                      </div>
 
-                    <div className="col-span-2 flex flex-col space-y-1">
-                      <span
-                        className={`inline-block text-[10px] uppercase font-bold px-2 py-0.5 rounded w-fit ${
-                          task.category === 'Negocio (BH)'
-                            ? 'bg-amber-950 text-amber-300 border border-amber-800'
-                            : task.category === 'Clinica'
-                            ? 'bg-purple-950 text-purple-300 border border-purple-800'
-                            : 'bg-blue-950 text-blue-300 border border-blue-800'
-                        }`}
-                      >
-                        {task.category}
-                      </span>
-                      {task.recurring_monthly && (
-                        <span className="text-[9px] bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded w-fit font-mono">
-                          🔄 Mensual
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="col-span-1 text-right font-mono font-bold text-emerald-400">
-                      ${task.amount} USD
-                    </div>
-
-                    <div className="col-span-2">
-                      <span className="font-mono font-semibold text-slate-200 block text-xs">{task.due_date}</span>
-                      <span className={`inline-block font-bold px-1.5 py-0.5 rounded text-[10px] mt-1 ${traffic.badge}`}>
-                        {traffic.text}
-                      </span>
-                    </div>
-
-                    {/* ACCIONES: EDITAR, PAGAR/RENOVAR Y ELIMINAR */}
-                    <div className="col-span-3 flex justify-end items-center space-x-1.5 print:hidden">
-                      {task.status !== 'Pagado' ? (
-                        <button
-                          onClick={() => handleMarkAsPaidAndRenew(task.id)}
-                          className="px-2 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold rounded shadow transition cursor-pointer"
-                          title="Pagar y avanzar un mes"
+                      <div className="col-span-2 flex flex-col space-y-1">
+                        <span
+                          className={`inline-block text-[10px] uppercase font-bold px-2 py-0.5 rounded w-fit ${
+                            task.category === 'Negocio (BH)'
+                              ? 'bg-amber-950 text-amber-300 border border-amber-800'
+                              : task.category === 'Clinica'
+                              ? 'bg-purple-950 text-purple-300 border border-purple-800'
+                              : 'bg-blue-950 text-blue-300 border border-blue-800'
+                          }`}
                         >
-                          ✔ Pagar
-                        </button>
-                      ) : (
-                        <span className="text-blue-400 text-[9px] font-bold bg-blue-950 px-1.5 py-1 rounded border border-blue-800">
-                          Pagado
+                          {task.category}
                         </span>
-                      )}
+                        {task.phi_flag && (
+                          <span className="text-[9px] bg-rose-950 text-rose-400 border border-rose-800 px-1.5 py-0.5 rounded font-mono font-semibold w-fit">
+                            🔒 HIPAA / PHI
+                          </span>
+                        )}
+                      </div>
 
-                      <button
-                        onClick={() => openEditModal(task)}
-                        className="px-2 py-1.5 bg-sky-950 hover:bg-sky-900 text-sky-300 text-[10px] font-bold rounded border border-sky-800 transition cursor-pointer"
-                        title="Editar cualquier error o detalle"
-                      >
-                        ✏️ Editar
-                      </button>
+                      <div className="col-span-1 text-right font-mono font-bold text-emerald-400">
+                        ${task.amount} USD
+                      </div>
 
-                      <button
-                        onClick={() => handleDeleteTask(task.id)}
-                        className="px-2 py-1.5 bg-rose-950 hover:bg-rose-900 text-rose-300 text-[10px] font-bold rounded border border-rose-800 transition cursor-pointer"
-                        title="Eliminar actividad"
-                      >
-                        🗑️
-                      </button>
+                      <div className="col-span-2">
+                        <span className="font-mono font-semibold text-slate-200 block text-xs">{task.due_date}</span>
+                        <span className={`inline-block font-bold px-1.5 py-0.5 rounded text-[10px] mt-1 ${traffic.badge}`}>
+                          {traffic.text}
+                        </span>
+                      </div>
+
+                      {/* ACCIONES: VER (OJITO), PAGAR, EDITAR, ELIMINAR */}
+                      <div className="col-span-3 flex justify-end items-center space-x-1.5 print:hidden">
+                        <button
+                          onClick={() => setViewingTask(task)}
+                          className="px-2 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 text-[10px] font-bold rounded border border-slate-600 transition cursor-pointer"
+                          title="Ver detalles completos"
+                        >
+                          👁️ Ver
+                        </button>
+
+                        {task.status !== 'Pagado' ? (
+                          <button
+                            onClick={() => handleMarkAsPaidAndRenew(task.id)}
+                            className="px-2 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold rounded shadow transition cursor-pointer"
+                            title="Pagar y renovar mes"
+                          >
+                            ✔ Pagar
+                          </button>
+                        ) : (
+                          <span className="text-blue-400 text-[9px] font-bold bg-blue-950 px-1.5 py-1 rounded border border-blue-800">
+                            Pagado
+                          </span>
+                        )}
+
+                        <button
+                          onClick={() => openEditModal(task)}
+                          className="px-2 py-1.5 bg-sky-950 hover:bg-sky-900 text-sky-300 text-[10px] font-bold rounded border border-sky-800 transition cursor-pointer"
+                          title="Editar error o datos"
+                        >
+                          ✏️ Editar
+                        </button>
+
+                        <button
+                          onClick={() => handleDeleteTask(task.id)}
+                          className="px-2 py-1.5 bg-rose-950 hover:bg-rose-900 text-rose-300 text-[10px] font-bold rounded border border-rose-800 transition cursor-pointer"
+                          title="Eliminar"
+                        >
+                          🗑️
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           </div>
+
+          {/* MODAL DEL "OJITO" (VER DETALLES COMPLETOS) */}
+          {viewingTask && (
+            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex justify-center items-center p-4 z-50 print:hidden">
+              <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 w-full max-w-lg shadow-2xl space-y-4">
+                <div className="flex justify-between items-start border-b border-slate-700 pb-3">
+                  <div>
+                    <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-800">
+                      {viewingTask.category}
+                    </span>
+                    <h3 className="text-lg font-bold text-white mt-1">{viewingTask.title}</h3>
+                  </div>
+                  <button
+                    onClick={() => setViewingTask(null)}
+                    className="text-slate-400 hover:text-white text-sm font-bold bg-slate-700 px-2.5 py-1 rounded cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <span className="text-slate-400 block font-semibold mb-1">Descripción / Notas:</span>
+                    <p className="text-slate-200 bg-slate-900 p-3 rounded border border-slate-700">
+                      {viewingTask.description || 'Sin notas adicionales.'}
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-slate-900 p-2.5 rounded border border-slate-700">
+                      <span className="text-slate-400 block text-[10px]">Monto Financiero:</span>
+                      <span className="text-emerald-400 font-mono font-bold text-sm">
+                        ${viewingTask.amount} USD
+                      </span>
+                    </div>
+                    <div className="bg-slate-900 p-2.5 rounded border border-slate-700">
+                      <span className="text-slate-400 block text-[10px]">Fecha de Vencimiento:</span>
+                      <span className="text-slate-200 font-mono font-bold text-sm">
+                        {viewingTask.due_date}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-slate-900 p-2.5 rounded border border-slate-700">
+                      <span className="text-slate-400 block text-[10px]">Prioridad Asignada:</span>
+                      <span className="text-amber-400 font-bold">{viewingTask.priority}</span>
+                    </div>
+                    <div className="bg-slate-900 p-2.5 rounded border border-slate-700">
+                      <span className="text-slate-400 block text-[10px]">Renovación Mensual:</span>
+                      <span className="text-blue-400 font-bold">
+                        {viewingTask.recurring_monthly ? 'Sí (Automática)' : 'No'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-900 p-3 rounded border border-slate-700 flex justify-between items-center">
+                    <div>
+                      <span className="text-slate-400 block text-[10px]">Seguridad & Privacidad HIPAA:</span>
+                      <span
+                        className={viewingTask.phi_flag ? 'text-rose-400 font-bold' : 'text-emerald-400 font-bold'}
+                      >
+                        {viewingTask.phi_flag ? '🔒 Contiene PHI (Protegido)' : 'Público / Estándar'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[10px]">Acceso para Bots (Dots / Musa):</span>
+                      <span
+                        className={viewingTask.bot_access ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}
+                      >
+                        {viewingTask.bot_access ? '✔ Permitido' : '✖ Bloqueado (Privado)'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    onClick={() => setViewingTask(null)}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded cursor-pointer"
+                  >
+                    Cerrar Vista
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* MODAL DE CREAR / EDITAR */}
           {showAddModal && (
