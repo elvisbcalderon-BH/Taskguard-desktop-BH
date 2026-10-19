@@ -26,26 +26,38 @@ export default function TaskGuardDashboard() {
   const [tasks, setTasks] = useState<Task[]>([
     {
       id: '1',
-      title: 'Revisión de resultados de laboratorio - Paciente A',
-      description: 'Cita médica y verificación de valores críticos.',
+      title: 'Seguimiento de laboratorio - Paciente B',
+      description: 'Valores críticos pendientes de revisión preoperatoria.',
       category: 'Clinica',
       priority: 'Alta',
       status: 'Pendiente',
       phi_flag: true,
       bot_access: false,
-      due_date: '2026-10-15', // Ejemplo vencido
-      created_at: '2026-10-10',
+      due_date: '2026-10-12', // Vencida hace varios días (Debe ir arriba)
+      created_at: '2026-10-05',
     },
     {
       id: '2',
+      title: 'Revisión de resultados de laboratorio - Paciente A',
+      description: 'Cita médica y verificación de valores críticos de panel metabólico.',
+      category: 'Clinica',
+      priority: 'Alta',
+      status: 'Pendiente',
+      phi_flag: true,
+      bot_access: false,
+      due_date: '2026-10-18', // Vence HOY
+      created_at: '2026-10-10',
+    },
+    {
+      id: '3',
       title: 'Organizar agenda semanal de consultas',
-      description: 'Planificar horarios de atención y recordatorios generales.',
+      description: 'Planificar horarios de atención generales y guardias.',
       category: 'Administrativa',
       priority: 'Media',
       status: 'Pendiente',
       phi_flag: false,
       bot_access: true,
-      due_date: '2026-10-25', // Ejemplo a futuro
+      due_date: '2026-10-30', // Futuro lejana (Debe ir abajo)
       created_at: '2026-10-18',
     },
   ]);
@@ -81,7 +93,7 @@ export default function TaskGuardDashboard() {
     fetchFromSupabase();
 
     const channel = supabase
-      .channel('schema-db-changes-v3')
+      .channel('schema-db-changes-v4')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'tasks' },
@@ -273,25 +285,30 @@ export default function TaskGuardDashboard() {
     }
   };
 
-  // Función para calcular días restantes o días de retraso
   const getDueDateStatus = (dueDateStr: string) => {
-    if (!dueDateStr) return { text: 'Sin fecha', status: 'upcoming' };
-    const today = new Date('2026-10-18'); // Fecha actual del sistema
+    if (!dueDateStr) return { text: 'Sin fecha', status: 'upcoming', days: 999 };
+    const today = new Date('2026-10-18');
     const dueDate = new Date(dueDateStr);
     const diffTime = dueDate.getTime() - today.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
     if (diffDays < 0) {
-      return { text: `Vencida por ${Math.abs(diffDays)} ${Math.abs(diffDays) === 1 ? 'día' : 'días'}`, status: 'expired' };
+      return { text: `Vencida por ${Math.abs(diffDays)} ${Math.abs(diffDays) === 1 ? 'día' : 'días'}`, status: 'expired', days: diffDays };
     } else if (diffDays === 0) {
-      return { text: 'Vence HOY', status: 'today' };
+      return { text: 'Vence HOY', status: 'today', days: 0 };
     } else {
-      return { text: `Faltan ${diffDays} ${diffDays === 1 ? 'día' : 'días'}`, status: 'upcoming' };
+      return { text: `Faltan ${diffDays} ${diffDays === 1 ? 'día' : 'días'}`, status: 'upcoming', days: diffDays };
     }
   };
 
-  const filteredTasks =
-    activeTab === 'Todas' ? tasks : tasks.filter((t) => t.category === activeTab);
+  // FILTRAR Y ORDENAR JERÁRQUICAMENTE: Las más vencidas (números negativos más bajos) van primero
+  const filteredTasks = activeTab === 'Todas' ? tasks : tasks.filter((t) => t.category === activeTab);
+
+  const sortedTasks = [...filteredTasks].sort((a, b) => {
+    const dateA = new Date(a.due_date).getTime();
+    const dateB = new Date(b.due_date).getTime();
+    return dateA - dateB; // Orden cronológico estricto: Las fechas más antiguas (vencidas) quedan arriba
+  });
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans">
@@ -379,9 +396,9 @@ export default function TaskGuardDashboard() {
             </button>
           </div>
 
-          {/* Grid de Tareas con Alertas de Vencimiento */}
+          {/* Grid de Tareas Ordenadas Jerárquicamente */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredTasks.map((task) => {
+            {sortedTasks.map((task) => {
               const dueInfo = getDueDateStatus(task.due_date);
 
               return (
@@ -414,14 +431,14 @@ export default function TaskGuardDashboard() {
                     <h3 className="text-sm font-bold text-white mb-1">{task.title}</h3>
                     <p className="text-xs text-slate-400 line-clamp-2 mb-3">{task.description}</p>
 
-                    {/* SECCIÓN DE FECHA Y ESTADO DE VENCIMIENTO VISIBLE */}
+                    {/* Sección de Estado Temporal Visible */}
                     <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-700/60 mb-3">
                       <div className="flex justify-between items-center text-[11px] mb-1">
                         <span className="text-slate-400">Fecha / Cita:</span>
                         <span className="text-slate-200 font-mono font-bold">{task.due_date}</span>
                       </div>
                       <div className="flex justify-between items-center text-[11px] pt-1 border-t border-slate-800">
-                        <span className="text-slate-400">Estado temporal:</span>
+                        <span className="text-slate-400">Jerarquía:</span>
                         <span
                           className={`font-bold px-1.5 py-0.5 rounded text-[10px] ${
                             dueInfo.status === 'expired'
