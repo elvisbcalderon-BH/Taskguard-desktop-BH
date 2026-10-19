@@ -786,7 +786,7 @@ export default function TaskGuardDashboard() {
               ))}
             </div>
 
-            {/* TYPE FILTER: ALL vs ACTIVITIES (TASKS) vs BILLS */}
+            {/* TYPE FILTER: ALL vs TASKS vs BILLS */}
             <div className="flex space-x-1 bg-slate-800 p-1 rounded-lg border border-slate-700">
               <button
                 onClick={() => setTypeFilter('All')}
@@ -802,7 +802,7 @@ export default function TaskGuardDashboard() {
                   typeFilter === 'Task' ? 'bg-purple-900 text-purple-200' : 'text-slate-400 hover:text-purple-300'
                 }`}
               >
-                📋 Activities ({items.filter((i) => i.type === 'Task').length})
+                📋 Tasks ({items.filter((i) => i.type === 'Task').length})
               </button>
               <button
                 onClick={() => setTypeFilter('Bill')}
@@ -820,7 +820,7 @@ export default function TaskGuardDashboard() {
             {/* Table Header with proper column spacing */}
             <div className="grid grid-cols-12 bg-slate-850 px-4 py-3 border-b border-slate-700 text-[11px] font-bold text-slate-400 uppercase tracking-wider items-center gap-3">
               <div className="col-span-1 text-center">Status</div>
-              <div className="col-span-4">Item / Activity or Bill</div>
+              <div className="col-span-4">Pending Task or Bill</div>
               <div className="col-span-1">Category</div>
               <div className="col-span-2 text-right pr-3 border-r border-slate-700/60">Amount</div>
               <div className="col-span-2 pl-2">Due Date</div>
@@ -857,7 +857,7 @@ export default function TaskGuardDashboard() {
                                 : 'bg-purple-950 text-purple-300 border border-purple-800'
                             }`}
                           >
-                            {item.type === 'Bill' ? '💳 Bill' : '📋 Activity'}
+                            {item.type === 'Bill' ? '💳 Bill' : '📋 Task'}
                           </span>
                           <h4 className="font-bold text-white text-sm leading-tight break-words" title={item.title}>
                             {item.title}
@@ -1039,7 +1039,7 @@ export default function TaskGuardDashboard() {
                       <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
                         viewingItem.type === 'Bill' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-purple-950 text-purple-300 border border-purple-800'
                       }`}>
-                        {viewingItem.type === 'Bill' ? '💳 Bill' : '📋 Activity'}
+                        {viewingItem.type === 'Bill' ? '💳 Bill' : '📋 Task'}
                       </span>
                       <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-800">
                         {viewingItem.category}
@@ -1088,7 +1088,7 @@ export default function TaskGuardDashboard() {
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex justify-center items-center p-4 z-50 print:hidden">
               <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 w-full max-w-md shadow-2xl">
                 <h3 className="text-base font-bold text-white mb-4">
-                  {editingItem ? '✏️ Edit Record' : '➕ New Record (Activity or Bill)'}
+                  {editingItem ? '✏️ Edit Record' : '➕ New Record (Task or Bill)'}
                 </h3>
                 <form onSubmit={handleSaveItem} className="space-y-4 text-xs">
                   <div className="grid grid-cols-2 gap-2">
@@ -1100,7 +1100,7 @@ export default function TaskGuardDashboard() {
                         className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white font-bold focus:outline-none"
                       >
                         <option value="Bill">💳 Payment Bill</option>
-                        <option value="Task">📋 Activity / Task</option>
+                        <option value="Task">📋 Pending Task</option>
                       </select>
                     </div>
                     <div>
