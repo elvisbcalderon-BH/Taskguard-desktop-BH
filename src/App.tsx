@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
+import { TaskGuardLogo } from './components/TaskGuardLogo';
 
 export interface Task {
   id: string;
@@ -352,13 +353,7 @@ export default function TaskGuardDashboard() {
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans">
       {/* Header */}
       <header className="bg-slate-800 border-b border-slate-700 px-6 py-4 flex justify-between items-center shadow-md print:hidden">
-        <div className="flex items-center space-x-3">
-          <div className="bg-emerald-600 text-white p-2 rounded-lg font-bold tracking-wider text-sm shadow-md">TG</div>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight text-white">TaskGuard Desktop - Home & Blessing Hands (BH)</h1>
-            <p className="text-xs text-slate-400">Financial Control, Activities & HIPAA/PHI Security Priority Engine</p>
-          </div>
-        </div>
+        <TaskGuardLogo />
         <div className="flex items-center space-x-3">
           <div className="bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-700 text-xs font-mono font-bold text-emerald-400">
             Current View Total: ${totalAmount.toLocaleString()} USD
