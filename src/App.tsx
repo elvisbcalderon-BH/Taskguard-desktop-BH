@@ -25,85 +25,108 @@ export interface Item {
 }
 
 export default function TaskGuardDashboard() {
-  const [items, setItems] = useState<Item[]>([
-    {
-      id: '1',
-      type: 'Bill',
-      title: 'ChatGPT (Blessing Hands)',
-      description: 'Corporate monthly AI operations subscription.',
-      category: 'Business (BH)',
-      priority: 'High',
-      amount: 55,
-      status: 'Pending',
-      phi_flag: false,
-      bot_access: true,
-      due_date: '2026-10-16',
-      recurring_monthly: true,
-      installments: [],
-    },
-    {
-      id: '2',
-      type: 'Task',
-      title: 'Laboratory Results Review - Patient A',
-      description: 'Review critical panel values in clinical office and adjust medication.',
-      category: 'Clinical',
-      priority: 'High',
-      amount: 0,
-      status: 'Pending',
-      phi_flag: true, // HIPAA / PHI
-      bot_access: false,
-      due_date: '2026-10-15',
-      recurring_monthly: false,
-      installments: [],
-    },
-    {
-      id: '3',
-      type: 'Bill',
-      title: 'Rent / Mortgage (Home)',
-      description: 'Monthly residential mortgage payment.',
-      category: 'Administrative',
-      priority: 'High',
-      amount: 1300,
-      status: 'Partial',
-      phi_flag: false,
-      bot_access: false,
-      due_date: '2026-10-30',
-      recurring_monthly: true,
-      installments: [
-        { id: 'inst-1', date: '2026-10-01', amount: 650 },
-      ],
-    },
-    {
-      id: '4',
-      type: 'Bill',
-      title: 'BH Cell Phone (Blessing Hands)',
-      description: 'Corporate wireless communication line for company staff.',
-      category: 'Business (BH)',
-      priority: 'High',
-      amount: 9,
-      status: 'Pending',
-      phi_flag: false,
-      bot_access: true,
-      due_date: '2026-10-19',
-      recurring_monthly: true,
-      installments: [],
-    },
-    {
-      id: '5',
-      type: 'Bill',
-      title: 'iFax (Blessing Hands)',
-      description: 'HIPAA-compliant cloud clinical fax service.',
-      category: 'Business (BH)',
-      priority: 'High',
-      amount: 55,
-      status: 'Pending',
-      phi_flag: false,
-      bot_access: true,
-      due_date: '2026-10-24',
-      recurring_monthly: true,
-      installments: [],
-    },
-  ]);
+  const [items, setItems] = useState<Item[]>(() => {
+    try {
+      const saved = localStorage.getItem('taskguard_items_v2');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.warn('Error reading stored items:', e);
+    }
+
+    return [
+      {
+        id: '1',
+        type: 'Bill',
+        title: 'ChatGPT (Blessing Hands)',
+        description: 'Corporate monthly AI operations subscription.',
+        category: 'Business (BH)',
+        priority: 'High',
+        amount: 55,
+        status: 'Pending',
+        phi_flag: false,
+        bot_access: true,
+        due_date: '2026-10-16',
+        recurring_monthly: true,
+        installments: [],
+      },
+      {
+        id: '2',
+        type: 'Task',
+        title: 'Laboratory Results Review - Patient A',
+        description: 'Review critical panel values in clinical office and adjust medication.',
+        category: 'Clinical',
+        priority: 'High',
+        amount: 0,
+        status: 'Pending',
+        phi_flag: true, // HIPAA / PHI
+        bot_access: false,
+        due_date: '2026-10-15',
+        recurring_monthly: false,
+        installments: [],
+      },
+      {
+        id: '3',
+        type: 'Bill',
+        title: 'Rent / Mortgage (Home)',
+        description: 'Monthly residential mortgage payment.',
+        category: 'Administrative',
+        priority: 'High',
+        amount: 1300,
+        status: 'Partial',
+        phi_flag: false,
+        bot_access: false,
+        due_date: '2026-10-30',
+        recurring_monthly: true,
+        installments: [
+          { id: 'inst-1', date: '2026-10-01', amount: 650 },
+        ],
+      },
+      {
+        id: '4',
+        type: 'Bill',
+        title: 'BH Cell Phone (Blessing Hands)',
+        description: 'Corporate wireless communication line for company staff.',
+        category: 'Business (BH)',
+        priority: 'High',
+        amount: 9,
+        status: 'Pending',
+        phi_flag: false,
+        bot_access: true,
+        due_date: '2026-10-19',
+        recurring_monthly: true,
+        installments: [],
+      },
+      {
+        id: '5',
+        type: 'Bill',
+        title: 'iFax (Blessing Hands)',
+        description: 'HIPAA-compliant cloud clinical fax service.',
+        category: 'Business (BH)',
+        priority: 'High',
+        amount: 55,
+        status: 'Pending',
+        phi_flag: false,
+        bot_access: true,
+        due_date: '2026-10-24',
+        recurring_monthly: true,
+        installments: [],
+      },
+    ];
+  });
+
+  // Guardar en localStorage cada vez que items cambie
+  useEffect(() => {
+    try {
+      localStorage.setItem('taskguard_items_v2', JSON.stringify(items));
+    } catch (e) {
+      console.warn('Error saving items locally:', e);
+    }
+  }, [items]);
 
   const [activeTab, setActiveTab] = useState<'All' | 'Business (BH)' | 'Clinical' | 'Administrative' | 'Personal'>('All');
   const [typeFilter, setTypeFilter] = useState<'All' | 'Task' | 'Bill'>('All'); // Filtro entre Tareas y Facturas
