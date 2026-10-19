@@ -5,10 +5,10 @@ export interface Task {
   id: string;
   title: string;
   description: string;
-  category: 'Clinica' | 'Administrativa' | 'Personal' | 'Negocio (BH)';
-  priority: 'Alta' | 'Media' | 'Baja';
+  category: 'Clinical' | 'Administrative' | 'Personal' | 'Business (BH)';
+  priority: 'High' | 'Medium' | 'Low';
   amount: number;
-  status: 'Pendiente' | 'Pagado' | 'En Progreso';
+  status: 'Pending' | 'Paid' | 'In Progress';
   phi_flag: boolean;
   bot_access: boolean;
   due_date: string; // YYYY-MM-DD
@@ -19,12 +19,12 @@ export default function TaskGuardDashboard() {
   const [tasks, setTasks] = useState<Task[]>([
     {
       id: '1',
-      title: 'Chat GPT (Blessing Hands)',
-      description: 'Suscripción mensual de IA corporativa para operaciones y redacción.',
-      category: 'Negocio (BH)',
-      priority: 'Alta',
+      title: 'ChatGPT (Blessing Hands)',
+      description: 'Corporate monthly AI subscription for operations and documentation.',
+      category: 'Business (BH)',
+      priority: 'High',
       amount: 55,
-      status: 'Pendiente',
+      status: 'Pending',
       phi_flag: false,
       bot_access: true,
       due_date: '2026-10-16',
@@ -32,56 +32,82 @@ export default function TaskGuardDashboard() {
     },
     {
       id: '2',
-      title: 'Revisión de resultados de laboratorio - Paciente A',
-      description: 'Verificar valores críticos en gabinete clínico y ajustar dosis.',
-      category: 'Clinica',
-      priority: 'Alta',
+      title: 'Laboratory Results Review - Patient A',
+      description: 'Review critical panel values in clinical office and adjust medication dosage.',
+      category: 'Clinical',
+      priority: 'High',
       amount: 0,
-      status: 'Pendiente',
-      phi_flag: true, // Datos médicos protegidos
+      status: 'Pending',
+      phi_flag: true, // Protected Health Information
       bot_access: false,
       due_date: '2026-10-15',
       recurring_monthly: false,
     },
     {
       id: '3',
-      title: 'Alquiler / Hipoteca (Casa)',
-      description: 'Pago mensual correspondiente al hogar.',
-      category: 'Administrativa',
-      priority: 'Alta',
+      title: 'Rent / Mortgage (Home)',
+      description: 'Monthly residential mortgage payment.',
+      category: 'Administrative',
+      priority: 'High',
       amount: 1300,
-      status: 'Pendiente',
+      status: 'Pending',
       phi_flag: false,
       bot_access: false,
       due_date: '2026-10-30',
       recurring_monthly: true,
     },
+    {
+      id: '4',
+      title: 'BH Cell Phone (Blessing Hands)',
+      description: 'Corporate mobile phone service line for BH staff.',
+      category: 'Business (BH)',
+      priority: 'High',
+      amount: 9,
+      status: 'Pending',
+      phi_flag: false,
+      bot_access: true,
+      due_date: '2026-10-19',
+      recurring_monthly: true,
+    },
+    {
+      id: '5',
+      title: 'iFax (Blessing Hands)',
+      description: 'HIPAA-compliant cloud medical fax service subscription.',
+      category: 'Business (BH)',
+      priority: 'High',
+      amount: 55,
+      status: 'Pending',
+      phi_flag: false,
+      bot_access: true,
+      due_date: '2026-10-24',
+      recurring_monthly: true,
+    },
   ]);
 
-  // Estado para el Filtro Activo
-  const [activeTab, setActiveTab] = useState<'Todas' | 'Negocio (BH)' | 'Clinica' | 'Administrativa' | 'Personal'>('Todas');
+  // Active Category Filter
+  const [activeTab, setActiveTab] = useState<'All' | 'Business (BH)' | 'Clinical' | 'Administrative' | 'Personal'>('All');
 
-  // Estados para Modales (Crear/Editar, Ver Detalles "Ojito")
+  // Modals States
   const [showAddModal, setShowAddModal] = useState(false);
-  const [viewingTask, setViewingTask] = useState<Task | null>(null); // Modal del Ojito
+  const [viewingTask, setViewingTask] = useState<Task | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
 
-  // Campos del formulario
+  // Form inputs
   const [formTitle, setFormTitle] = useState('');
   const [formDesc, setFormDesc] = useState('');
-  const [formCategory, setFormCategory] = useState<'Clinica' | 'Administrativa' | 'Personal' | 'Negocio (BH)'>('Negocio (BH)');
-  const [formPriority, setFormPriority] = useState<'Alta' | 'Media' | 'Baja'>('Alta');
+  const [formCategory, setFormCategory] = useState<'Clinical' | 'Administrative' | 'Personal' | 'Business (BH)'>('Business (BH)');
+  const [formPriority, setFormPriority] = useState<'High' | 'Medium' | 'Low'>('High');
   const [formAmount, setFormAmount] = useState(0);
   const [formDueDate, setFormDueDate] = useState('');
   const [formRecurring, setFormRecurring] = useState(true);
   const [formPhi, setFormPhi] = useState(false);
 
-  // Sincronización Realtime con Supabase
+  // Realtime Supabase Sync
   useEffect(() => {
     fetchFromSupabase();
 
     const channel = supabase
-      .channel('schema-db-changes-v8')
+      .channel('schema-db-changes-v9-en')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'tasks' },
@@ -99,33 +125,44 @@ export default function TaskGuardDashboard() {
       const { data: dbTasks } = await supabase.from('tasks').select('*');
       if (dbTasks && dbTasks.length > 0) {
         setTasks(
-          dbTasks.map((t) => ({
-            id: t.id,
-            title: t.title,
-            description: t.description || '',
-            category: (t.category as Task['category']) || 'Negocio (BH)',
-            priority: (t.quadrant === 'urgent_important' ? 'Alta' : t.quadrant === 'not_urgent_important' ? 'Media' : 'Baja'),
-            amount: Number(t.amount || 0),
-            status: t.status === 'completed' || t.status === 'Pagado' ? 'Pagado' : t.status === 'in_progress' ? 'En Progreso' : 'Pendiente',
-            phi_flag: !!t.phi_flag,
-            bot_access: t.bot_access !== undefined ? !!t.bot_access : !t.phi_flag,
-            due_date: t.due_date ? t.due_date.substring(0, 10) : '2026-10-20',
-            recurring_monthly: t.recurring_monthly !== undefined ? !!t.recurring_monthly : true,
-          }))
+          dbTasks.map((t) => {
+            // Normalizar categorías al inglés
+            let cat: Task['category'] = 'Business (BH)';
+            if (t.category === 'Clinica' || t.category === 'Clinical') cat = 'Clinical';
+            else if (t.category === 'Administrativa' || t.category === 'Administrative') cat = 'Administrative';
+            else if (t.category === 'Personal') cat = 'Personal';
+
+            let prio: Task['priority'] = 'High';
+            if (t.priority === 'Media' || t.quadrant === 'not_urgent_important') prio = 'Medium';
+            else if (t.priority === 'Baja' || t.quadrant === 'not_urgent_not_important') prio = 'Low';
+
+            return {
+              id: t.id,
+              title: t.title,
+              description: t.description || '',
+              category: cat,
+              priority: prio,
+              amount: Number(t.amount || 0),
+              status: t.status === 'completed' || t.status === 'Paid' || t.status === 'Pagado' ? 'Paid' : t.status === 'in_progress' ? 'In Progress' : 'Pending',
+              phi_flag: !!t.phi_flag,
+              bot_access: t.bot_access !== undefined ? !!t.bot_access : !t.phi_flag,
+              due_date: t.due_date ? t.due_date.substring(0, 10) : '2026-10-20',
+              recurring_monthly: t.recurring_monthly !== undefined ? !!t.recurring_monthly : true,
+            };
+          })
         );
       }
     } catch (e) {
-      console.warn('Usando estado reactivo local:', e);
+      console.warn('Using local reactive state:', e);
     }
   };
 
-  // Abrir modal para crear
   const openAddModal = () => {
     setEditingTask(null);
     setFormTitle('');
     setFormDesc('');
-    setFormCategory('Negocio (BH)');
-    setFormPriority('Alta');
+    setFormCategory('Business (BH)');
+    setFormPriority('High');
     setFormAmount(0);
     setFormDueDate('');
     setFormRecurring(true);
@@ -133,7 +170,6 @@ export default function TaskGuardDashboard() {
     setShowAddModal(true);
   };
 
-  // Abrir modal para editar
   const openEditModal = (task: Task) => {
     setEditingTask(task);
     setFormTitle(task.title);
@@ -147,7 +183,6 @@ export default function TaskGuardDashboard() {
     setShowAddModal(true);
   };
 
-  // Guardar (Crear o Actualizar)
   const handleSaveTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formTitle || !formDueDate) return;
@@ -183,11 +218,10 @@ export default function TaskGuardDashboard() {
               due_date: new Date(formDueDate).toISOString(),
               recurring_monthly: formRecurring,
               phi_flag: formPhi,
-              quadrant: formPriority === 'Alta' ? 'urgent_important' : formPriority === 'Media' ? 'not_urgent_important' : 'not_urgent_not_important',
             })
             .eq('id', editingTask.id);
         } catch (err) {
-          console.warn('Error actualizando en Supabase:', err);
+          console.warn('Error updating Supabase:', err);
         }
       }
     } else {
@@ -198,9 +232,9 @@ export default function TaskGuardDashboard() {
         category: formCategory,
         priority: formPriority,
         amount: Number(formAmount),
-        status: 'Pendiente',
+        status: 'Pending',
         phi_flag: formPhi,
-        bot_access: formCategory !== 'Clinica',
+        bot_access: formCategory !== 'Clinical',
         due_date: formDueDate,
         recurring_monthly: formRecurring,
       };
@@ -217,17 +251,15 @@ export default function TaskGuardDashboard() {
             phi_flag: newTask.phi_flag,
             bot_access: newTask.bot_access,
             due_date: new Date(newTask.due_date).toISOString(),
-            quadrant: newTask.priority === 'Alta' ? 'urgent_important' : newTask.priority === 'Media' ? 'not_urgent_important' : 'not_urgent_not_important',
           },
         ]);
       } catch (err) {
-        console.warn('Error guardando en Supabase:', err);
+        console.warn('Error saving to Supabase:', err);
       }
     }
     setShowAddModal(false);
   };
 
-  // Marcar pagado y renovar mes automáticamente
   const handleMarkAsPaidAndRenew = async (id: string) => {
     let nextDateComputed = '';
 
@@ -243,7 +275,7 @@ export default function TaskGuardDashboard() {
           nextDateComputed = nextDate;
           return {
             ...task,
-            status: 'Pagado',
+            status: 'Paid',
             due_date: nextDate,
           };
         }
@@ -272,7 +304,7 @@ export default function TaskGuardDashboard() {
           },
         ]);
       } catch (err) {
-        console.warn('Error sincronizando renovación:', err);
+        console.warn('Error syncing renewal:', err);
       }
     }
   };
@@ -283,7 +315,7 @@ export default function TaskGuardDashboard() {
       try {
         await supabase.from('tasks').delete().eq('id', id);
       } catch (err) {
-        console.warn('Error eliminando en Supabase:', err);
+        console.warn('Error deleting record:', err);
       }
     }
   };
@@ -292,27 +324,29 @@ export default function TaskGuardDashboard() {
     window.print();
   };
 
-  // Semáforo visual
+  // Visual Traffic Light / Countdown Status
   const getTrafficLightStatus = (dueDateStr: string, priority: string, status: string) => {
-    if (status === 'Pagado') {
-      return { indicator: 'bg-blue-500', badge: 'bg-blue-950 text-blue-400 border border-blue-800', text: 'Pagado (Renovado)' };
+    if (status === 'Paid') {
+      return { indicator: 'bg-blue-500', badge: 'bg-blue-950 text-blue-400 border border-blue-800', text: 'Paid (Renewed)' };
     }
     const today = new Date('2026-10-19');
     const dueDate = new Date(dueDateStr);
     const diffDays = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 
-    if (diffDays < 0 || priority === 'Alta') {
-      return { indicator: 'bg-rose-500 animate-pulse', badge: 'bg-rose-950 text-rose-400 border border-rose-800', text: diffDays < 0 ? `Vencida (${Math.abs(diffDays)}d)` : 'Crítico' };
-    } else if (diffDays <= 3 || priority === 'Media') {
-      return { indicator: 'bg-amber-500', badge: 'bg-amber-950 text-amber-400 border border-amber-800', text: diffDays === 0 ? 'Vence HOY' : `Próximo (${diffDays}d)` };
+    if (diffDays < 0 || priority === 'High') {
+      return { indicator: 'bg-rose-500 animate-pulse', badge: 'bg-rose-950 text-rose-400 border border-rose-800', text: diffDays < 0 ? `Overdue (${Math.abs(diffDays)}d)` : 'Critical' };
+    } else if (diffDays <= 3 || priority === 'Medium') {
+      return { indicator: 'bg-amber-500', badge: 'bg-amber-950 text-amber-400 border border-amber-800', text: diffDays === 0 ? 'Due TODAY' : `Upcoming (${diffDays}d)` };
     } else {
-      return { indicator: 'bg-emerald-500', badge: 'bg-emerald-950 text-emerald-400 border border-emerald-800', text: `A tiempo (${diffDays}d)` };
+      return { indicator: 'bg-emerald-500', badge: 'bg-emerald-950 text-emerald-400 border border-emerald-800', text: `On schedule (${diffDays}d)` };
     }
   };
 
-  // Filtrado estricto por categoría seleccionada
-  const filteredTasks = activeTab === 'Todas' ? tasks : tasks.filter((t) => t.category === activeTab);
+  // Filter & Sort
+  const filteredTasks = activeTab === 'All' ? tasks : tasks.filter((t) => t.category === activeTab);
   const sortedTasks = [...filteredTasks].sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
+
+  const totalAmount = filteredTasks.reduce((sum, item) => sum + item.amount, 0);
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans">
@@ -321,32 +355,35 @@ export default function TaskGuardDashboard() {
         <div className="flex items-center space-x-3">
           <div className="bg-emerald-600 text-white p-2 rounded-lg font-bold tracking-wider text-sm shadow-md">TG</div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-white">TaskGuard Desktop - Casa & Blessing Hands (BH)</h1>
-            <p className="text-xs text-slate-400">Control Financiero, Actividades y Seguridad HIPAA/PHI</p>
+            <h1 className="text-xl font-bold tracking-tight text-white">TaskGuard Desktop - Home & Blessing Hands (BH)</h1>
+            <p className="text-xs text-slate-400">Financial Control, Activities & HIPAA/PHI Security Priority Engine</p>
           </div>
         </div>
         <div className="flex items-center space-x-3">
+          <div className="bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-700 text-xs font-mono font-bold text-emerald-400">
+            Current View Total: ${totalAmount.toLocaleString()} USD
+          </div>
           <button
             onClick={handlePrintReport}
             className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold rounded-lg shadow transition cursor-pointer"
           >
-            🖨️ Imprimir / Reporte
+            🖨️ Print / Report
           </button>
           <button
             onClick={openAddModal}
             className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow transition cursor-pointer"
           >
-            + Nueva Obligación / Tarea
+            + New Obligation / Task
           </button>
         </div>
       </header>
 
       <div className="flex flex-1 overflow-hidden">
         <main className="flex-1 p-6 overflow-y-auto">
-          {/* BOTONES DE FILTRO RÁPIDO POR CATEGORÍA */}
+          {/* Quick Category Filter Pills */}
           <div className="flex flex-wrap items-center justify-between mb-6 gap-2 print:hidden">
             <div className="flex space-x-2">
-              {(['Todas', 'Negocio (BH)', 'Clinica', 'Administrativa', 'Personal'] as const).map((tab) => (
+              {(['All', 'Business (BH)', 'Clinical', 'Administrative', 'Personal'] as const).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -356,33 +393,33 @@ export default function TaskGuardDashboard() {
                       : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
                   }`}
                 >
-                  {tab === 'Clinica' ? 'Clínica' : tab}{' '}
-                  {tab === 'Todas'
+                  {tab}{' '}
+                  {tab === 'All'
                     ? `(${tasks.length})`
                     : `(${tasks.filter((t) => t.category === tab).length})`}
                 </button>
               ))}
             </div>
             <div className="text-xs text-slate-400 font-mono">
-              Mostrando: <span className="text-emerald-400 font-bold">{filteredTasks.length}</span> registros
+              Showing: <span className="text-emerald-400 font-bold">{filteredTasks.length}</span> records
             </div>
           </div>
 
-          {/* Tabla de Listado */}
+          {/* List Table */}
           <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden shadow-xl">
             <div className="grid grid-cols-12 bg-slate-800/90 px-4 py-3 border-b border-slate-700 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-              <div className="col-span-1 text-center">Semáforo</div>
-              <div className="col-span-3">Concepto / Obligación</div>
-              <div className="col-span-2">Categoría & BH</div>
-              <div className="col-span-1 text-right">Monto</div>
-              <div className="col-span-2">Vencimiento</div>
-              <div className="col-span-3 text-center">Acciones (Ver, Editar, Pagar)</div>
+              <div className="col-span-1 text-center">Status</div>
+              <div className="col-span-3">Item / Obligation</div>
+              <div className="col-span-2">Category & BH</div>
+              <div className="col-span-1 text-right">Amount</div>
+              <div className="col-span-2">Due Date</div>
+              <div className="col-span-3 text-center">Actions (View, Edit, Pay)</div>
             </div>
 
             <div className="divide-y divide-slate-700/60">
               {sortedTasks.length === 0 ? (
                 <div className="py-8 text-center text-slate-500 text-xs">
-                  No hay actividades registradas en esta categoría.
+                  No records registered in this category.
                 </div>
               ) : (
                 sortedTasks.map((task) => {
@@ -405,18 +442,18 @@ export default function TaskGuardDashboard() {
                       <div className="col-span-2 flex flex-col space-y-1">
                         <span
                           className={`inline-block text-[10px] uppercase font-bold px-2 py-0.5 rounded w-fit ${
-                            task.category === 'Negocio (BH)'
+                            task.category === 'Business (BH)'
                               ? 'bg-amber-950 text-amber-300 border border-amber-800'
-                              : task.category === 'Clinica'
+                              : task.category === 'Clinical'
                               ? 'bg-purple-950 text-purple-300 border border-purple-800'
                               : 'bg-blue-950 text-blue-300 border border-blue-800'
                           }`}
                         >
                           {task.category}
                         </span>
-                        {task.phi_flag && (
-                          <span className="text-[9px] bg-rose-950 text-rose-400 border border-rose-800 px-1.5 py-0.5 rounded font-mono font-semibold w-fit">
-                            🔒 HIPAA / PHI
+                        {task.recurring_monthly && (
+                          <span className="text-[9px] bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded w-fit font-mono">
+                            🔄 Monthly
                           </span>
                         )}
                       </div>
@@ -432,42 +469,42 @@ export default function TaskGuardDashboard() {
                         </span>
                       </div>
 
-                      {/* ACCIONES: VER (OJITO), PAGAR, EDITAR, ELIMINAR */}
+                      {/* Actions: View, Pay, Edit, Delete */}
                       <div className="col-span-3 flex justify-end items-center space-x-1.5 print:hidden">
                         <button
                           onClick={() => setViewingTask(task)}
                           className="px-2 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 text-[10px] font-bold rounded border border-slate-600 transition cursor-pointer"
-                          title="Ver detalles completos"
+                          title="View complete details"
                         >
-                          👁️ Ver
+                          👁️ View
                         </button>
 
-                        {task.status !== 'Pagado' ? (
+                        {task.status !== 'Paid' ? (
                           <button
                             onClick={() => handleMarkAsPaidAndRenew(task.id)}
                             className="px-2 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold rounded shadow transition cursor-pointer"
-                            title="Pagar y renovar mes"
+                            title="Pay and advance one month"
                           >
-                            ✔ Pagar
+                            ✔ Pay
                           </button>
                         ) : (
                           <span className="text-blue-400 text-[9px] font-bold bg-blue-950 px-1.5 py-1 rounded border border-blue-800">
-                            Pagado
+                            Paid
                           </span>
                         )}
 
                         <button
                           onClick={() => openEditModal(task)}
                           className="px-2 py-1.5 bg-sky-950 hover:bg-sky-900 text-sky-300 text-[10px] font-bold rounded border border-sky-800 transition cursor-pointer"
-                          title="Editar error o datos"
+                          title="Edit details or amounts"
                         >
-                          ✏️ Editar
+                          ✏️ Edit
                         </button>
 
                         <button
                           onClick={() => handleDeleteTask(task.id)}
                           className="px-2 py-1.5 bg-rose-950 hover:bg-rose-900 text-rose-300 text-[10px] font-bold rounded border border-rose-800 transition cursor-pointer"
-                          title="Eliminar"
+                          title="Delete entry"
                         >
                           🗑️
                         </button>
@@ -479,7 +516,7 @@ export default function TaskGuardDashboard() {
             </div>
           </div>
 
-          {/* MODAL DEL "OJITO" (VER DETALLES COMPLETOS) */}
+          {/* Quick View Modal (Eye) */}
           {viewingTask && (
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex justify-center items-center p-4 z-50 print:hidden">
               <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 w-full max-w-lg shadow-2xl space-y-4">
@@ -500,21 +537,21 @@ export default function TaskGuardDashboard() {
 
                 <div className="space-y-3 text-xs">
                   <div>
-                    <span className="text-slate-400 block font-semibold mb-1">Descripción / Notas:</span>
+                    <span className="text-slate-400 block font-semibold mb-1">Description / Notes:</span>
                     <p className="text-slate-200 bg-slate-900 p-3 rounded border border-slate-700">
-                      {viewingTask.description || 'Sin notas adicionales.'}
+                      {viewingTask.description || 'No additional notes provided.'}
                     </p>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-slate-900 p-2.5 rounded border border-slate-700">
-                      <span className="text-slate-400 block text-[10px]">Monto Financiero:</span>
+                      <span className="text-slate-400 block text-[10px]">Financial Amount:</span>
                       <span className="text-emerald-400 font-mono font-bold text-sm">
                         ${viewingTask.amount} USD
                       </span>
                     </div>
                     <div className="bg-slate-900 p-2.5 rounded border border-slate-700">
-                      <span className="text-slate-400 block text-[10px]">Fecha de Vencimiento:</span>
+                      <span className="text-slate-400 block text-[10px]">Due Date:</span>
                       <span className="text-slate-200 font-mono font-bold text-sm">
                         {viewingTask.due_date}
                       </span>
@@ -523,32 +560,32 @@ export default function TaskGuardDashboard() {
 
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-slate-900 p-2.5 rounded border border-slate-700">
-                      <span className="text-slate-400 block text-[10px]">Prioridad Asignada:</span>
+                      <span className="text-slate-400 block text-[10px]">Assigned Priority:</span>
                       <span className="text-amber-400 font-bold">{viewingTask.priority}</span>
                     </div>
                     <div className="bg-slate-900 p-2.5 rounded border border-slate-700">
-                      <span className="text-slate-400 block text-[10px]">Renovación Mensual:</span>
+                      <span className="text-slate-400 block text-[10px]">Monthly Auto-Renewal:</span>
                       <span className="text-blue-400 font-bold">
-                        {viewingTask.recurring_monthly ? 'Sí (Automática)' : 'No'}
+                        {viewingTask.recurring_monthly ? 'Yes (Automatic)' : 'No'}
                       </span>
                     </div>
                   </div>
 
                   <div className="bg-slate-900 p-3 rounded border border-slate-700 flex justify-between items-center">
                     <div>
-                      <span className="text-slate-400 block text-[10px]">Seguridad & Privacidad HIPAA:</span>
+                      <span className="text-slate-400 block text-[10px]">HIPAA Privacy & Security:</span>
                       <span
                         className={viewingTask.phi_flag ? 'text-rose-400 font-bold' : 'text-emerald-400 font-bold'}
                       >
-                        {viewingTask.phi_flag ? '🔒 Contiene PHI (Protegido)' : 'Público / Estándar'}
+                        {viewingTask.phi_flag ? '🔒 Protected Health Information (PHI)' : 'Standard / Public'}
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-400 block text-[10px]">Acceso para Bots (Dots / Musa):</span>
+                      <span className="text-slate-400 block text-[10px]">Bot Access (Dots / Musa):</span>
                       <span
                         className={viewingTask.bot_access ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}
                       >
-                        {viewingTask.bot_access ? '✔ Permitido' : '✖ Bloqueado (Privado)'}
+                        {viewingTask.bot_access ? '✔ Permitted' : '✖ Blocked (Private)'}
                       </span>
                     </div>
                   </div>
@@ -559,48 +596,48 @@ export default function TaskGuardDashboard() {
                     onClick={() => setViewingTask(null)}
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded cursor-pointer"
                   >
-                    Cerrar Vista
+                    Close View
                   </button>
                 </div>
               </div>
             </div>
           )}
 
-          {/* MODAL DE CREAR / EDITAR */}
+          {/* Create / Edit Modal */}
           {showAddModal && (
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex justify-center items-center p-4 z-50 print:hidden">
               <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 w-full max-w-md shadow-2xl">
                 <h3 className="text-base font-bold text-white mb-4">
-                  {editingTask ? '✏️ Editar Obligación o Actividad' : '➕ Nueva Obligación o Actividad'}
+                  {editingTask ? '✏️ Edit Obligation or Task' : '➕ New Obligation or Task'}
                 </h3>
                 <form onSubmit={handleSaveTask} className="space-y-4">
                   <div>
-                    <label className="block text-xs text-slate-400 mb-1">Título / Concepto</label>
+                    <label className="block text-xs text-slate-400 mb-1">Title / Concept</label>
                     <input
                       type="text"
                       value={formTitle}
                       onChange={(e) => setFormTitle(e.target.value)}
-                      placeholder="Ej. iFax (Blessing Hands)"
+                      placeholder="e.g. iFax (Blessing Hands)"
                       className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white focus:outline-none focus:border-blue-500"
                       required
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="block text-xs text-slate-400 mb-1">Categoría</label>
+                      <label className="block text-xs text-slate-400 mb-1">Category</label>
                       <select
                         value={formCategory}
                         onChange={(e) => setFormCategory(e.target.value as any)}
                         className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white focus:outline-none"
                       >
-                        <option value="Negocio (BH)">Negocio (Blessing Hands)</option>
-                        <option value="Administrativa">Administrativa / Casa</option>
-                        <option value="Clinica">Clínica</option>
+                        <option value="Business (BH)">Business (Blessing Hands)</option>
+                        <option value="Administrative">Administrative / Home</option>
+                        <option value="Clinical">Clinical</option>
                         <option value="Personal">Personal</option>
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs text-slate-400 mb-1">Monto ($ USD)</label>
+                      <label className="block text-xs text-slate-400 mb-1">Amount ($ USD)</label>
                       <input
                         type="number"
                         value={formAmount}
@@ -611,7 +648,7 @@ export default function TaskGuardDashboard() {
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="block text-xs text-slate-400 mb-1">Fecha de Vencimiento</label>
+                      <label className="block text-xs text-slate-400 mb-1">Due Date</label>
                       <input
                         type="date"
                         value={formDueDate}
@@ -621,20 +658,20 @@ export default function TaskGuardDashboard() {
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-slate-400 mb-1">Prioridad</label>
+                      <label className="block text-xs text-slate-400 mb-1">Priority</label>
                       <select
                         value={formPriority}
                         onChange={(e) => setFormPriority(e.target.value as any)}
                         className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white focus:outline-none"
                       >
-                        <option value="Alta">Alta</option>
-                        <option value="Media">Media</option>
-                        <option value="Baja">Baja</option>
+                        <option value="High">High</option>
+                        <option value="Medium">Medium</option>
+                        <option value="Low">Low</option>
                       </select>
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs text-slate-400 mb-1">Descripción / Notas</label>
+                    <label className="block text-xs text-slate-400 mb-1">Description / Notes</label>
                     <textarea
                       value={formDesc}
                       onChange={(e) => setFormDesc(e.target.value)}
@@ -650,7 +687,7 @@ export default function TaskGuardDashboard() {
                         onChange={(e) => setFormRecurring(e.target.checked)}
                         className="rounded cursor-pointer"
                       />
-                      <span>Renovación automática mensual</span>
+                      <span>Automatic Monthly Renewal</span>
                     </label>
                     <label className="flex items-center space-x-2 cursor-pointer">
                       <input
@@ -668,13 +705,13 @@ export default function TaskGuardDashboard() {
                       onClick={() => setShowAddModal(false)}
                       className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs rounded cursor-pointer"
                     >
-                      Cancelar
+                      Cancel
                     </button>
                     <button
                       type="submit"
                       className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded cursor-pointer"
                     >
-                      {editingTask ? 'Actualizar Cambios' : 'Guardar Obligación'}
+                      {editingTask ? 'Save Changes' : 'Save Obligation'}
                     </button>
                   </div>
                 </form>
