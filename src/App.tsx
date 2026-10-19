@@ -110,6 +110,7 @@ export default function TaskGuardDashboard() {
 
   // Modales
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [paymentModalItem, setPaymentModalItem] = useState<Item | null>(null);
   const [viewingItem, setViewingItem] = useState<Item | null>(null);
 
@@ -416,48 +417,121 @@ export default function TaskGuardDashboard() {
     }
   };
 
-  // Guardar nuevo registro (Task o Bill)
+  // Abrir modal de creación
+  const openAddModal = () => {
+    setEditingItem(null);
+    setFormType('Bill');
+    setFormTitle('');
+    setFormDesc('');
+    setFormCategory('Business (BH)');
+    setFormPriority('High');
+    setFormAmount(0);
+    setFormDueDate('');
+    setFormRecurring(true);
+    setFormPhi(false);
+    setShowAddModal(true);
+  };
+
+  // Abrir modal de edición
+  const openEditModal = (item: Item) => {
+    setEditingItem(item);
+    setFormType(item.type);
+    setFormTitle(item.title);
+    setFormDesc(item.description);
+    setFormCategory(item.category);
+    setFormPriority(item.priority);
+    setFormAmount(item.amount);
+    setFormDueDate(item.due_date);
+    setFormRecurring(item.recurring_monthly);
+    setFormPhi(item.phi_flag);
+    setShowAddModal(true);
+  };
+
+  // Guardar (Crear o Actualizar)
   const handleSaveItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formTitle || !formDueDate) return;
 
-    const newItem: Item = {
-      id: Date.now().toString(),
-      type: formType,
-      title: formTitle,
-      description: formDesc,
-      category: formCategory,
-      priority: formPriority,
-      amount: formType === 'Bill' ? Number(formAmount) : 0,
-      status: 'Pending',
-      phi_flag: formPhi,
-      bot_access: formCategory !== 'Clinical',
-      due_date: formDueDate,
-      recurring_monthly: formType === 'Bill' ? formRecurring : false,
-      installments: [],
-    };
+    if (editingItem) {
+      setItems((prev) =>
+        prev.map((i) =>
+          i.id === editingItem.id
+            ? {
+                ...i,
+                type: formType,
+                title: formTitle,
+                description: formDesc,
+                category: formCategory,
+                priority: formPriority,
+                amount: formType === 'Bill' ? Number(formAmount) : 0,
+                due_date: formDueDate,
+                recurring_monthly: formType === 'Bill' ? formRecurring : false,
+                phi_flag: formPhi,
+              }
+            : i
+        )
+      );
 
-    setItems((prev) => [...prev, newItem]);
-    setShowAddModal(false);
+      if (editingItem.id.length > 20) {
+        try {
+          await supabase
+            .from('tasks')
+            .update({
+              type: formType,
+              title: formTitle,
+              description: formDesc,
+              category: formCategory,
+              amount: formType === 'Bill' ? Number(formAmount) : 0,
+              due_date: new Date(formDueDate).toISOString(),
+              recurring_monthly: formType === 'Bill' ? formRecurring : false,
+              phi_flag: formPhi,
+            })
+            .eq('id', editingItem.id);
+        } catch (err) {
+          console.warn('Error updating in Supabase:', err);
+        }
+      }
+    } else {
+      const newItem: Item = {
+        id: Date.now().toString(),
+        type: formType,
+        title: formTitle,
+        description: formDesc,
+        category: formCategory,
+        priority: formPriority,
+        amount: formType === 'Bill' ? Number(formAmount) : 0,
+        status: 'Pending',
+        phi_flag: formPhi,
+        bot_access: formCategory !== 'Clinical',
+        due_date: formDueDate,
+        recurring_monthly: formType === 'Bill' ? formRecurring : false,
+        installments: [],
+      };
 
-    try {
-      await supabase.from('tasks').insert([
-        {
-          type: newItem.type,
-          title: newItem.title,
-          description: newItem.description,
-          category: newItem.category,
-          amount: newItem.amount,
-          recurring_monthly: newItem.recurring_monthly,
-          phi_flag: newItem.phi_flag,
-          bot_access: newItem.bot_access,
-          due_date: new Date(newItem.due_date).toISOString(),
-          installments: [],
-        },
-      ]);
-    } catch (err) {
-      console.warn('Error saving in Supabase:', err);
+      setItems((prev) => [...prev, newItem]);
+
+      try {
+        await supabase.from('tasks').insert([
+          {
+            type: newItem.type,
+            title: newItem.title,
+            description: newItem.description,
+            category: newItem.category,
+            amount: newItem.amount,
+            recurring_monthly: newItem.recurring_monthly,
+            phi_flag: newItem.phi_flag,
+            bot_access: newItem.bot_access,
+            due_date: new Date(newItem.due_date).toISOString(),
+            installments: [],
+          },
+        ]);
+      } catch (err) {
+        console.warn('Error saving in Supabase:', err);
+      }
     }
+
+    setShowAddModal(false);
+    setEditingItem(null);
   };
 
   const handleDeleteItem = async (id: string) => {
@@ -653,7 +727,7 @@ export default function TaskGuardDashboard() {
             🖨️ Print / Report
           </button>
           <button
-            onClick={() => setShowAddModal(true)}
+            onClick={openAddModal}
             className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow transition cursor-pointer"
           >
             + New Record
@@ -686,22 +760,28 @@ export default function TaskGuardDashboard() {
         <main className="flex-1 p-6 overflow-y-auto">
           {/* Quick Filters: Categories + Type Selector */}
           <div className="flex flex-wrap items-center justify-between mb-6 gap-3 print:hidden">
-            {/* Category Pills */}
-            <div className="flex space-x-2">
-              {(['All', 'Business (BH)', 'Clinical', 'Administrative', 'Personal'] as const).map((tab) => (
+            {/* Category Pills with Official Nomenclature */}
+            <div className="flex flex-wrap gap-2">
+              {[
+                { id: 'All', label: 'All Pending Tasks' },
+                { id: 'Business (BH)', label: '💼 BH Business Tasks & Bills' },
+                { id: 'Administrative', label: '🏠 Household & Admin Tasks' },
+                { id: 'Clinical', label: '🩺 Clinical & Medical Tasks' },
+                { id: 'Personal', label: '👤 Personal Tasks' },
+              ].map((tab) => (
                 <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`px-4 py-2 rounded-lg text-xs font-semibold transition shadow cursor-pointer ${
-                    activeTab === tab
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as any)}
+                  className={`px-3.5 py-2 rounded-lg text-xs font-semibold transition shadow cursor-pointer ${
+                    activeTab === tab.id
                       ? 'bg-blue-600 text-white ring-2 ring-blue-400'
                       : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
                   }`}
                 >
-                  {tab}{' '}
-                  {tab === 'All'
+                  {tab.label}{' '}
+                  {tab.id === 'All'
                     ? `(${items.length})`
-                    : `(${items.filter((t) => t.category === tab).length})`}
+                    : `(${items.filter((t) => t.category === tab.id).length})`}
                 </button>
               ))}
             </div>
@@ -859,8 +939,17 @@ export default function TaskGuardDashboard() {
                         )}
 
                         <button
+                          onClick={() => openEditModal(item)}
+                          className="px-2 py-1.5 bg-sky-950 hover:bg-sky-900 text-sky-300 text-[10px] font-bold rounded border border-sky-800 cursor-pointer"
+                          title="Edit Record"
+                        >
+                          ✏️
+                        </button>
+
+                        <button
                           onClick={() => handleDeleteItem(item.id)}
                           className="px-2 py-1.5 bg-rose-950 hover:bg-rose-900 text-rose-300 text-[10px] font-bold rounded border border-rose-800 cursor-pointer"
+                          title="Delete Record"
                         >
                           🗑️
                         </button>
@@ -994,11 +1083,13 @@ export default function TaskGuardDashboard() {
             </div>
           )}
 
-          {/* New Record Modal (Task vs Bill) */}
+          {/* New / Edit Record Modal (Task vs Bill) */}
           {showAddModal && (
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex justify-center items-center p-4 z-50 print:hidden">
               <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 w-full max-w-md shadow-2xl">
-                <h3 className="text-base font-bold text-white mb-4">➕ New Record (Activity or Bill)</h3>
+                <h3 className="text-base font-bold text-white mb-4">
+                  {editingItem ? '✏️ Edit Record' : '➕ New Record (Activity or Bill)'}
+                </h3>
                 <form onSubmit={handleSaveItem} className="space-y-4 text-xs">
                   <div className="grid grid-cols-2 gap-2">
                     <div>
