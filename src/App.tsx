@@ -549,39 +549,53 @@ export default function TaskGuardDashboard() {
     window.print();
   };
 
-  // Semáforo visual
+  // Semáforo visual con jerarquía de colores:
+  // 1: ROJO (Crítico / Alta prioridad / Vencido)
+  // 2: AMARILLO (Prioridad Media / Cuotas parciales)
+  // 3: VERDE (Prioridad Baja / Al día)
+  // 4: AZUL (Completado / Pagado)
   const getTrafficLightStatus = (item: Item) => {
     if (item.status === 'Paid' || item.status === 'Completed') {
       return {
+        rank: 4,
         indicator: 'bg-blue-500',
         badge: 'bg-blue-950 text-blue-400 border border-blue-800',
         text: item.type === 'Bill' ? 'Fully Paid' : 'Completed',
       };
     }
-    if (item.status === 'Partial') {
-      return {
-        indicator: 'bg-amber-500',
-        badge: 'bg-amber-950 text-amber-400 border border-amber-800',
-        text: 'Partial / Installments',
-      };
-    }
+
     const today = new Date('2026-10-19');
     const dueDate = new Date(item.due_date);
     const diffDays = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    const isOverdue = diffDays < 0;
 
-    if (diffDays < 0 || item.priority === 'High') {
+    // 1. ROJO: Vencido o Prioridad Alta
+    if (isOverdue || item.priority === 'High') {
       return {
+        rank: 1,
         indicator: 'bg-rose-500 animate-pulse',
         badge: 'bg-rose-950 text-rose-400 border border-rose-800',
-        text: diffDays < 0 ? `Overdue (${Math.abs(diffDays)}d)` : 'Critical / High',
-      };
-    } else {
-      return {
-        indicator: 'bg-emerald-500',
-        badge: 'bg-emerald-950 text-emerald-400 border border-emerald-800',
-        text: `On schedule (${diffDays}d)`,
+        text: isOverdue ? `Overdue (${Math.abs(diffDays)}d)` : 'Critical / High',
       };
     }
+
+    // 2. AMARILLO: Prioridad Media o En Cuotas (Parcial)
+    if (item.priority === 'Medium' || item.status === 'Partial') {
+      return {
+        rank: 2,
+        indicator: 'bg-amber-500',
+        badge: 'bg-amber-950 text-amber-400 border border-amber-800',
+        text: item.status === 'Partial' ? 'Partial / Installments' : `Medium Priority (${diffDays}d)`,
+      };
+    }
+
+    // 3. VERDE: Prioridad Baja / Al día
+    return {
+      rank: 3,
+      indicator: 'bg-emerald-500',
+      badge: 'bg-emerald-950 text-emerald-400 border border-emerald-800',
+      text: `Low Priority (${diffDays}d)`,
+    };
   };
 
   // Filtrado combinado: Categoría + Tipo (Task vs Bill)
@@ -591,9 +605,19 @@ export default function TaskGuardDashboard() {
     return matchesCategory && matchesType;
   });
 
-  const sortedItems = [...filteredItems].sort(
-    (a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime()
-  );
+  // ORDEN JERÁRQUICO ESTRICTO:
+  // 1º ROJO (Vencidas / Alta) -> 2º AMARILLO (Media) -> 3º VERDE (Baja) -> 4º AZUL (Hechas)
+  // A igual jerarquía de color, se ordena por la fecha de vencimiento más próxima
+  const sortedItems = [...filteredItems].sort((a, b) => {
+    const rankA = getTrafficLightStatus(a).rank;
+    const rankB = getTrafficLightStatus(b).rank;
+
+    if (rankA !== rankB) {
+      return rankA - rankB; // Menor rank (1 Rojo) primero
+    }
+
+    return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+  });
 
   const totalAmount = filteredItems
     .filter((i) => i.type === 'Bill')
