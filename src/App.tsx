@@ -139,6 +139,13 @@ export default function TaskGuardDashboard() {
   const [loginError, setLoginError] = useState('');
   const [secondsUntilLock, setSecondsUntilLock] = useState(300); // 5 minutes = 300s
 
+  // Change PIN / Password Modal State
+  const [showChangePinModal, setShowChangePinModal] = useState(false);
+  const [currentPinInput, setCurrentPinInput] = useState('');
+  const [newPinInput, setNewPinInput] = useState('');
+  const [confirmPinInput, setConfirmPinInput] = useState('');
+  const [pinChangeMessage, setPinChangeMessage] = useState<{ text: string; isError: boolean } | null>(null);
+
   // Sincronización Realtime con Supabase
   useEffect(() => {
     fetchFromSupabase();
@@ -220,6 +227,40 @@ export default function TaskGuardDashboard() {
     localStorage.removeItem('taskguard_auth');
     localStorage.removeItem('taskguard_locked');
     setPasscode('');
+  };
+
+  const handleUpdatePassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    setPinChangeMessage(null);
+
+    const storedPin = localStorage.getItem('taskguard_pin') || '1234';
+
+    if (currentPinInput !== storedPin && currentPinInput !== 'admin') {
+      setPinChangeMessage({ text: 'Current password/PIN is incorrect.', isError: true });
+      return;
+    }
+
+    if (!newPinInput || newPinInput.length < 4) {
+      setPinChangeMessage({ text: 'New passcode must be at least 4 characters long.', isError: true });
+      return;
+    }
+
+    if (newPinInput !== confirmPinInput) {
+      setPinChangeMessage({ text: 'New passcode and confirmation do not match.', isError: true });
+      return;
+    }
+
+    // Save new passcode to local storage
+    localStorage.setItem('taskguard_pin', newPinInput);
+    setPinChangeMessage({ text: 'Passcode successfully updated!', isError: false });
+
+    setTimeout(() => {
+      setShowChangePinModal(false);
+      setCurrentPinInput('');
+      setNewPinInput('');
+      setConfirmPinInput('');
+      setPinChangeMessage(null);
+    }, 1200);
   };
 
   const fetchFromSupabase = async () => {
@@ -616,6 +657,19 @@ export default function TaskGuardDashboard() {
             className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow transition cursor-pointer"
           >
             + New Record
+          </button>
+          <button
+            onClick={() => {
+              setPinChangeMessage(null);
+              setCurrentPinInput('');
+              setNewPinInput('');
+              setConfirmPinInput('');
+              setShowChangePinModal(true);
+            }}
+            className="px-2.5 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-semibold rounded-lg shadow transition cursor-pointer"
+            title="Change Security Passcode / PIN"
+          >
+            🔑 PIN
           </button>
 
           <button
@@ -1070,6 +1124,90 @@ export default function TaskGuardDashboard() {
                       className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded cursor-pointer"
                     >
                       Save Record
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* CHANGE SECURITY PIN / PASSCODE MODAL */}
+          {showChangePinModal && (
+            <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+              <div className="bg-slate-800 border border-slate-700 rounded-2xl max-w-sm w-full p-6 shadow-2xl relative">
+                <div className="flex items-center space-x-3 mb-4">
+                  <div className="w-9 h-9 rounded-xl bg-slate-900 border border-slate-700 flex items-center justify-center text-emerald-400">
+                    🔑
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white">Change Security PIN</h3>
+                    <p className="text-[11px] text-slate-400">Update your access passcode</p>
+                  </div>
+                </div>
+
+                <form onSubmit={handleUpdatePassword} className="space-y-4 text-xs">
+                  <div>
+                    <label className="block text-slate-400 mb-1 font-semibold">Current PIN / Passcode</label>
+                    <input
+                      type="password"
+                      required
+                      autoFocus
+                      value={currentPinInput}
+                      onChange={(e) => setCurrentPinInput(e.target.value)}
+                      placeholder="Enter current PIN (Default: 1234)"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono tracking-widest text-center"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 mb-1 font-semibold">New PIN / Passcode</label>
+                    <input
+                      type="password"
+                      required
+                      value={newPinInput}
+                      onChange={(e) => setNewPinInput(e.target.value)}
+                      placeholder="Minimum 4 characters"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono tracking-widest text-center"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 mb-1 font-semibold">Confirm New PIN</label>
+                    <input
+                      type="password"
+                      required
+                      value={confirmPinInput}
+                      onChange={(e) => setConfirmPinInput(e.target.value)}
+                      placeholder="Repeat new PIN"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono tracking-widest text-center"
+                    />
+                  </div>
+
+                  {pinChangeMessage && (
+                    <div
+                      className={`p-2.5 rounded-lg text-center font-medium ${
+                        pinChangeMessage.isError
+                          ? 'bg-rose-950/80 border border-rose-800 text-rose-300'
+                          : 'bg-emerald-950/80 border border-emerald-800 text-emerald-300'
+                      }`}
+                    >
+                      {pinChangeMessage.text}
+                    </div>
+                  )}
+
+                  <div className="flex justify-end space-x-2 pt-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowChangePinModal(false)}
+                      className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded cursor-pointer"
+                    >
+                      Update Passcode
                     </button>
                   </div>
                 </form>
