@@ -489,13 +489,13 @@ export default function TaskGuardDashboard() {
           {/* Table List */}
           <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden shadow-xl">
             {/* Table Header with proper column spacing */}
-            <div className="grid grid-cols-12 bg-slate-850 px-4 py-3 border-b border-slate-700 text-[11px] font-bold text-slate-400 uppercase tracking-wider items-center gap-2">
+            <div className="grid grid-cols-12 bg-slate-850 px-4 py-3 border-b border-slate-700 text-[11px] font-bold text-slate-400 uppercase tracking-wider items-center gap-3">
               <div className="col-span-1 text-center">Status</div>
-              <div className="col-span-3">Item / Activity or Bill</div>
-              <div className="col-span-2">Type & Category</div>
+              <div className="col-span-4">Item / Activity or Bill</div>
+              <div className="col-span-1">Category</div>
               <div className="col-span-2 text-right pr-3 border-r border-slate-700/60">Amount</div>
-              <div className="col-span-2 pl-3">Due Date</div>
-              <div className="col-span-2 text-center">Actions & Management</div>
+              <div className="col-span-2 pl-2">Due Date</div>
+              <div className="col-span-2 text-center">Actions</div>
             </div>
 
             <div className="divide-y divide-slate-700/60">
@@ -512,16 +512,17 @@ export default function TaskGuardDashboard() {
                   return (
                     <div
                       key={item.id}
-                      className="grid grid-cols-12 px-4 py-3 items-center hover:bg-slate-750/70 transition text-xs gap-2"
+                      className="grid grid-cols-12 px-4 py-3 items-center hover:bg-slate-750/70 transition text-xs gap-3"
                     >
                       <div className="col-span-1 flex justify-center items-center">
                         <span className={`w-3.5 h-3.5 rounded-full shadow-md ${traffic.indicator}`} title={traffic.text}></span>
                       </div>
 
-                      <div className="col-span-3 pr-2">
-                        <div className="flex items-center space-x-1.5 mb-0.5">
+                      {/* ITEM DETAILS: Full Title & Description visibility without truncation */}
+                      <div className="col-span-4 pr-2">
+                        <div className="flex flex-wrap items-center gap-1.5 mb-1">
                           <span
-                            className={`text-[9px] px-1.5 py-0.2 rounded font-bold uppercase ${
+                            className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase shrink-0 ${
                               item.type === 'Bill'
                                 ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
                                 : 'bg-purple-950 text-purple-300 border border-purple-800'
@@ -529,23 +530,28 @@ export default function TaskGuardDashboard() {
                           >
                             {item.type === 'Bill' ? '💳 Bill' : '📋 Activity'}
                           </span>
-                          <h4 className="font-bold text-white text-sm truncate">{item.title}</h4>
+                          <h4 className="font-bold text-white text-sm leading-tight break-words" title={item.title}>
+                            {item.title}
+                          </h4>
                         </div>
-                        <p className="text-slate-400 text-[11px] truncate">{item.description}</p>
+                        <p className="text-slate-400 text-xs leading-normal break-words whitespace-normal">
+                          {item.description}
+                        </p>
                       </div>
 
-                      <div className="col-span-2 flex flex-col space-y-1">
+                      {/* CATEGORY & HIPAA */}
+                      <div className="col-span-1 flex flex-col space-y-1">
                         <span className="inline-block text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-800 w-fit">
                           {item.category}
                         </span>
                         {item.phi_flag && (
                           <span className="text-[9px] bg-rose-950 text-rose-400 border border-rose-800 px-1.5 py-0.5 rounded font-mono font-semibold w-fit">
-                            🔒 HIPAA / PHI
+                            🔒 PHI
                           </span>
                         )}
                       </div>
 
-                      {/* AMOUNT COLUMN (Dedicated 2 cols, clearly separated) */}
+                      {/* AMOUNT COLUMN */}
                       <div className="col-span-2 text-right pr-3 border-r border-slate-700/60 font-mono">
                         {item.type === 'Bill' ? (
                           <div>
@@ -563,8 +569,8 @@ export default function TaskGuardDashboard() {
                         )}
                       </div>
 
-                      {/* DUE DATE COLUMN (Dedicated 2 cols with left padding) */}
-                      <div className="col-span-2 pl-3">
+                      {/* DUE DATE COLUMN */}
+                      <div className="col-span-2 pl-2">
                         <span className="font-mono font-semibold text-slate-200 block text-xs tracking-tight">
                           📅 {item.due_date}
                         </span>
