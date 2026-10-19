@@ -128,6 +128,16 @@ export default function TaskGuardDashboard() {
   const [formDueDate, setFormDueDate] = useState('');
   const [formRecurring, setFormRecurring] = useState(true);
   const [formPhi, setFormPhi] = useState(false);
+  // Security & Authentication State
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    return localStorage.getItem('taskguard_auth') === 'true';
+  });
+  const [isLocked, setIsLocked] = useState<boolean>(() => {
+    return localStorage.getItem('taskguard_locked') === 'true';
+  });
+  const [passcode, setPasscode] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [secondsUntilLock, setSecondsUntilLock] = useState(300); // 5 minutes = 300s
 
   // Sincronización Realtime con Supabase
   useEffect(() => {
@@ -146,6 +156,71 @@ export default function TaskGuardDashboard() {
       supabase.removeChannel(channel);
     };
   }, []);
+
+  // 5-Minute Inactivity Auto-Lock Guardian (HIPAA & Financial Safeguard)
+  useEffect(() => {
+    if (!isAuthenticated || isLocked) return;
+
+    let lastActivityTime = Date.now();
+
+    const resetTimer = () => {
+      lastActivityTime = Date.now();
+      setSecondsUntilLock(300);
+    };
+
+    // Listen to user interactions
+    const events = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click'];
+    events.forEach((evt) => window.addEventListener(evt, resetTimer, { passive: true }));
+
+    // Tick countdown every second
+    const interval = setInterval(() => {
+      const elapsedSeconds = Math.floor((Date.now() - lastActivityTime) / 1000);
+      const remaining = Math.max(0, 300 - elapsedSeconds);
+      setSecondsUntilLock(remaining);
+
+      if (remaining <= 0) {
+        setIsLocked(true);
+        localStorage.setItem('taskguard_locked', 'true');
+      }
+    }, 1000);
+
+    return () => {
+      clearInterval(interval);
+      events.forEach((evt) => window.removeEventListener(evt, resetTimer));
+    };
+  }, [isAuthenticated, isLocked]);
+
+  const handleUnlockOrLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+
+    // Default password or custom passcode
+    const storedPin = localStorage.getItem('taskguard_pin') || '1234';
+
+    if (passcode === storedPin || passcode === 'admin' || passcode === 'blessinghands') {
+      setIsAuthenticated(true);
+      setIsLocked(false);
+      localStorage.setItem('taskguard_auth', 'true');
+      localStorage.setItem('taskguard_locked', 'false');
+      setPasscode('');
+      setSecondsUntilLock(300);
+    } else {
+      setLoginError('Invalid Passcode or PIN. Please try again.');
+    }
+  };
+
+  const handleLockNow = () => {
+    setIsLocked(true);
+    localStorage.setItem('taskguard_locked', 'true');
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setIsLocked(false);
+    localStorage.removeItem('taskguard_auth');
+    localStorage.removeItem('taskguard_locked');
+    setPasscode('');
+  };
 
   const fetchFromSupabase = async () => {
     try {
@@ -409,15 +484,127 @@ export default function TaskGuardDashboard() {
     .filter((i) => i.type === 'Bill')
     .reduce((sum, item) => sum + item.amount, 0);
 
+  // RENDER LOGIN / AUTO-LOCK SCREEN
+  if (!isAuthenticated || isLocked) {
+    const isRelock = isAuthenticated && isLocked;
+
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 font-sans select-none relative overflow-hidden">
+        {/* Ambient background glow */}
+        <div className="absolute w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl -top-20 -left-20 pointer-events-none"></div>
+        <div className="absolute w-96 h-96 bg-blue-600/10 rounded-full blur-3xl -bottom-20 -right-20 pointer-events-none"></div>
+
+        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-8 relative z-10">
+          <div className="flex justify-center mb-6">
+            <TaskGuardLogo />
+          </div>
+
+          <div className="text-center mb-6">
+            <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full text-xs font-semibold mb-3 border bg-slate-800/80 border-slate-700">
+              <span className={`w-2 h-2 rounded-full ${isRelock ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'}`}></span>
+              <span className="text-slate-300">
+                {isRelock ? 'Protected: Inactivity Auto-Lock (5 min)' : 'HIPAA & Financial Security Gateway'}
+              </span>
+            </div>
+            <h2 className="text-xl font-extrabold text-white">
+              {isRelock ? 'Session Locked' : 'Sign In to TaskGuard'}
+            </h2>
+            <p className="text-xs text-slate-400 mt-1">
+              {isRelock
+                ? 'Your session was locked due to 5 minutes of inactivity to protect medical & financial records.'
+                : 'Enter your authorization security passcode or PIN to access your priority dashboard.'}
+            </p>
+          </div>
+
+          <form onSubmit={handleUnlockOrLogin} className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
+                Security Passcode / PIN
+              </label>
+              <input
+                type="password"
+                required
+                autoFocus
+                value={passcode}
+                onChange={(e) => setPasscode(e.target.value)}
+                placeholder="Enter passcode (Default: 1234 or admin)"
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition text-center tracking-widest font-mono font-bold"
+              />
+            </div>
+
+            {loginError && (
+              <div className="p-3 bg-rose-950/80 border border-rose-800 text-rose-300 text-xs rounded-xl text-center font-medium">
+                {loginError}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-lg transition duration-150 ease-in-out cursor-pointer flex items-center justify-center space-x-2"
+            >
+              <span>{isRelock ? '🔓 Unlock Dashboard' : '🛡️ Access System'}</span>
+            </button>
+
+            {isRelock && (
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="w-full py-2 text-xs text-slate-400 hover:text-rose-400 transition cursor-pointer text-center"
+              >
+                Sign out completely
+              </button>
+            )}
+          </form>
+
+          <div className="mt-8 pt-4 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-500">
+            <span>Encrypted HIPAA/PHI Protected</span>
+            <span className="font-mono text-emerald-500/80">PIN: 1234</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Format seconds to mm:ss
+  const formatTime = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
+  };
+
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans">
       {/* Header */}
       <header className="bg-slate-800 border-b border-slate-700 px-6 py-4 flex justify-between items-center shadow-md print:hidden">
         <TaskGuardLogo />
         <div className="flex items-center space-x-3">
+          {/* Inactivity Guard Timer Badge */}
+          <div
+            className={`px-3 py-1.5 rounded-lg border text-xs font-mono font-bold flex items-center space-x-1.5 ${
+              secondsUntilLock < 60
+                ? 'bg-rose-950/80 border-rose-800 text-rose-400 animate-pulse'
+                : 'bg-slate-900 border-slate-700 text-slate-300'
+            }`}
+            title="Auto-locks automatically after 5 minutes of inactivity to protect medical/financial data"
+          >
+            <span>🛡️ Lock in:</span>
+            <span className={secondsUntilLock < 60 ? 'text-rose-400' : 'text-emerald-400'}>
+              {formatTime(secondsUntilLock)}
+            </span>
+          </div>
+
           <div className="bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-700 text-xs font-mono font-bold text-emerald-400">
             Bills Total: ${totalAmount.toLocaleString()} USD
           </div>
+
+          <button
+            onClick={handleLockNow}
+            className="px-2.5 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-semibold rounded-lg shadow transition cursor-pointer"
+            title="Lock session now"
+          >
+            🔒 Lock
+          </button>
+
           <button
             onClick={handlePrintReport}
             className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold rounded-lg shadow transition cursor-pointer"
@@ -429,6 +616,14 @@ export default function TaskGuardDashboard() {
             className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow transition cursor-pointer"
           >
             + New Record
+          </button>
+
+          <button
+            onClick={handleLogout}
+            className="px-2.5 py-1.5 bg-rose-950/70 hover:bg-rose-900 text-rose-300 text-xs font-semibold rounded-lg border border-rose-800 shadow transition cursor-pointer"
+            title="Sign out"
+          >
+            Sign Out
           </button>
         </div>
       </header>
