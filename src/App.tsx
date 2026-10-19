@@ -12,7 +12,7 @@ export interface Task {
   phi_flag: boolean;
   bot_access: boolean;
   due_date: string; // YYYY-MM-DD
-  recurring_monthly: boolean; // Renovable automáticamente cada mes
+  recurring_monthly: boolean;
 }
 
 export default function TaskGuardDashboard() {
@@ -71,25 +71,29 @@ export default function TaskGuardDashboard() {
     },
   ]);
 
-  const [activeTab, setActiveTab] = useState<'Todas' | 'Clinica' | 'Administrativa' | 'Personal' | 'Negocio (BH)'>('Todas');
-  const [showAddModal, setShowAddModal] = useState(false);
+  const [activeTab, setActiveTab] = useState<'Todas' | 'Negocio (BH)' | 'Clinica' | 'Administrativa' | 'Personal'>('Todas');
 
-  // Estados para nueva tarea / gasto
-  const [newTitle, setNewTitle] = useState('');
-  const [newDesc, setNewDesc] = useState('');
-  const [newCategory, setNewCategory] = useState<'Clinica' | 'Administrativa' | 'Personal' | 'Negocio (BH)'>('Negocio (BH)');
-  const [newPriority, setNewPriority] = useState<'Alta' | 'Media' | 'Baja'>('Alta');
-  const [newAmount, setNewAmount] = useState(0);
-  const [newDueDate, setNewDueDate] = useState('');
-  const [newRecurring, setNewRecurring] = useState(true);
-  const [newPhi, setNewPhi] = useState(false);
+  // Estados para modales de Agregar y Editar
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+
+  // Campos del formulario
+  const [formTitle, setFormTitle] = useState('');
+  const [formDesc, setFormDesc] = useState('');
+  const [formCategory, setFormCategory] = useState<'Clinica' | 'Administrativa' | 'Personal' | 'Negocio (BH)'>('Negocio (BH)');
+  const [formPriority, setFormPriority] = useState<'Alta' | 'Media' | 'Baja'>('Alta');
+  const [formAmount, setFormAmount] = useState(0);
+  const [formDueDate, setFormDueDate] = useState('');
+  const [formRecurring, setFormRecurring] = useState(true);
+  const [formPhi, setFormPhi] = useState(false);
+  const [formBotAccess, setFormBotAccess] = useState(true);
 
   // Sincronización Realtime con Supabase
   useEffect(() => {
     fetchFromSupabase();
 
     const channel = supabase
-      .channel('schema-db-changes-v6')
+      .channel('schema-db-changes-v7')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'tasks' },
@@ -127,7 +131,122 @@ export default function TaskGuardDashboard() {
     }
   };
 
-  // 1. FUNCIÓN DE RENOVACIÓN MENSUAL AUTOMÁTICA (Al pagar, avanza 1 mes)
+  // Abrir modal para crear
+  const openAddModal = () => {
+    setEditingTask(null);
+    setFormTitle('');
+    setFormDesc('');
+    setFormCategory('Negocio (BH)');
+    setFormPriority('Alta');
+    setFormAmount(0);
+    setFormDueDate('');
+    setFormRecurring(true);
+    setFormPhi(false);
+    setFormBotAccess(true);
+    setShowAddModal(true);
+  };
+
+  // Abrir modal para editar tarea existente
+  const openEditModal = (task: Task) => {
+    setEditingTask(task);
+    setFormTitle(task.title);
+    setFormDesc(task.description);
+    setFormCategory(task.category);
+    setFormPriority(task.priority);
+    setFormAmount(task.amount);
+    setFormDueDate(task.due_date);
+    setFormRecurring(task.recurring_monthly);
+    setFormPhi(task.phi_flag);
+    setFormBotAccess(task.bot_access);
+    setShowAddModal(true);
+  };
+
+  // Guardar (Crear o Actualizar)
+  const handleSaveTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formTitle || !formDueDate) return;
+
+    if (editingTask) {
+      // 1. Editar existente
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === editingTask.id
+            ? {
+                ...t,
+                title: formTitle,
+                description: formDesc,
+                category: formCategory,
+                priority: formPriority,
+                amount: Number(formAmount),
+                due_date: formDueDate,
+                recurring_monthly: formRecurring,
+                phi_flag: formPhi,
+                bot_access: formBotAccess,
+              }
+            : t
+        )
+      );
+
+      if (editingTask.id.length > 20) {
+        try {
+          await supabase
+            .from('tasks')
+            .update({
+              title: formTitle,
+              description: formDesc,
+              category: formCategory,
+              amount: Number(formAmount),
+              due_date: new Date(formDueDate).toISOString(),
+              recurring_monthly: formRecurring,
+              phi_flag: formPhi,
+              bot_access: formBotAccess,
+              quadrant: formPriority === 'Alta' ? 'urgent_important' : formPriority === 'Media' ? 'not_urgent_important' : 'not_urgent_not_important',
+            })
+            .eq('id', editingTask.id);
+        } catch (err) {
+          console.warn('Error actualizando en Supabase:', err);
+        }
+      }
+    } else {
+      // 2. Crear nueva
+      const newTask: Task = {
+        id: Date.now().toString(),
+        title: formTitle,
+        description: formDesc,
+        category: formCategory,
+        priority: formPriority,
+        amount: Number(formAmount),
+        status: 'Pendiente',
+        phi_flag: formPhi,
+        bot_access: formBotAccess,
+        due_date: formDueDate,
+        recurring_monthly: formRecurring,
+      };
+
+      setTasks((prev) => [...prev, newTask]);
+
+      try {
+        await supabase.from('tasks').insert([
+          {
+            title: newTask.title,
+            description: newTask.description,
+            category: newTask.category,
+            amount: newTask.amount,
+            recurring_monthly: newTask.recurring_monthly,
+            phi_flag: newTask.phi_flag,
+            bot_access: newTask.bot_access,
+            due_date: new Date(newTask.due_date).toISOString(),
+            quadrant: newTask.priority === 'Alta' ? 'urgent_important' : newTask.priority === 'Media' ? 'not_urgent_important' : 'not_urgent_not_important',
+          },
+        ]);
+      } catch (err) {
+        console.warn('Error guardando en Supabase:', err);
+      }
+    }
+    setShowAddModal(false);
+  };
+
+  // Marcar como pagado y renovar mes automáticamente
   const handleMarkAsPaidAndRenew = async (id: string) => {
     let nextDateComputed = '';
 
@@ -137,21 +256,20 @@ export default function TaskGuardDashboard() {
           let nextDate = task.due_date;
           if (task.recurring_monthly && task.due_date) {
             const currentDate = new Date(task.due_date);
-            currentDate.setMonth(currentDate.getMonth() + 1); // Sumar 1 mes manteniendo la referencia
+            currentDate.setMonth(currentDate.getMonth() + 1);
             nextDate = currentDate.toISOString().split('T')[0];
           }
           nextDateComputed = nextDate;
           return {
             ...task,
             status: 'Pagado',
-            due_date: nextDate, // Fecha actualizada automáticamente al mes siguiente
+            due_date: nextDate,
           };
         }
         return task;
       })
     );
 
-    // Persistir en Supabase
     if (id.length > 20) {
       try {
         await supabase
@@ -178,64 +296,19 @@ export default function TaskGuardDashboard() {
     }
   };
 
-  // 2. ELIMINAR TAREA / GASTO
+  // Eliminar tarea
   const handleDeleteTask = async (id: string) => {
     setTasks((prev) => prev.filter((t) => t.id !== id));
     if (id.length > 20) {
       try {
         await supabase.from('tasks').delete().eq('id', id);
       } catch (err) {
-        console.warn('Error eliminando de base:', err);
+        console.warn('Error eliminando en Supabase:', err);
       }
     }
   };
 
-  // 3. AGREGAR NUEVA TAREA / OBLIGACIÓN
-  const handleAddTask = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTitle || !newDueDate) return;
-
-    const newTask: Task = {
-      id: Date.now().toString(),
-      title: newTitle,
-      description: newDesc,
-      category: newCategory,
-      priority: newPriority,
-      amount: Number(newAmount),
-      status: 'Pendiente',
-      phi_flag: newPhi,
-      bot_access: newCategory !== 'Clinica',
-      due_date: newDueDate,
-      recurring_monthly: newRecurring,
-    };
-
-    setTasks((prev) => [...prev, newTask]);
-    setNewTitle('');
-    setNewDesc('');
-    setNewAmount(0);
-    setNewDueDate('');
-    setShowAddModal(false);
-
-    try {
-      await supabase.from('tasks').insert([
-        {
-          title: newTask.title,
-          description: newTask.description,
-          category: newTask.category,
-          amount: newTask.amount,
-          recurring_monthly: newTask.recurring_monthly,
-          phi_flag: newTask.phi_flag,
-          bot_access: newTask.bot_access,
-          due_date: new Date(newTask.due_date).toISOString(),
-          quadrant: newTask.priority === 'Alta' ? 'urgent_important' : newTask.priority === 'Media' ? 'not_urgent_important' : 'not_urgent_not_important',
-        },
-      ]);
-    } catch (err) {
-      console.warn('Guardado en estado reactivo:', err);
-    }
-  };
-
-  // 4. IMPRIMIR / EXPORTAR REPORTE
+  // Imprimir reporte
   const handlePrintReport = () => {
     window.print();
   };
@@ -261,7 +334,6 @@ export default function TaskGuardDashboard() {
   const filteredTasks = activeTab === 'Todas' ? tasks : tasks.filter((t) => t.category === activeTab);
   const sortedTasks = [...filteredTasks].sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
 
-  // Cálculo de totales financieros por filtro activo
   const totalAmount = filteredTasks.reduce((sum, item) => sum + item.amount, 0);
 
   return (
@@ -286,7 +358,7 @@ export default function TaskGuardDashboard() {
             🖨️ Imprimir / Reporte
           </button>
           <button
-            onClick={() => setShowAddModal(true)}
+            onClick={openAddModal}
             className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow transition cursor-pointer"
           >
             + Nueva Obligación / Tarea
@@ -304,9 +376,7 @@ export default function TaskGuardDashboard() {
                   key={tab}
                   onClick={() => setActiveTab(tab)}
                   className={`px-4 py-2 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                    activeTab === tab
-                      ? 'bg-blue-600 text-white shadow-lg'
-                      : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
+                    activeTab === tab ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
                   }`}
                 >
                   {tab === 'Clinica' ? 'Clínica' : tab}
@@ -328,7 +398,7 @@ export default function TaskGuardDashboard() {
               <div className="col-span-2">Categoría & BH</div>
               <div className="col-span-1 text-right">Monto</div>
               <div className="col-span-2">Vencimiento</div>
-              <div className="col-span-3 text-center">Acciones & Renovación Mensual</div>
+              <div className="col-span-3 text-center">Acciones, Editar & Renovación</div>
             </div>
 
             <div className="divide-y divide-slate-700/60">
@@ -379,24 +449,34 @@ export default function TaskGuardDashboard() {
                       </span>
                     </div>
 
-                    <div className="col-span-3 flex justify-end items-center space-x-2 print:hidden">
+                    {/* ACCIONES: EDITAR, PAGAR/RENOVAR Y ELIMINAR */}
+                    <div className="col-span-3 flex justify-end items-center space-x-1.5 print:hidden">
                       {task.status !== 'Pagado' ? (
                         <button
                           onClick={() => handleMarkAsPaidAndRenew(task.id)}
-                          className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold rounded shadow transition cursor-pointer"
-                          title="Marca como pagado y avanza automáticamente al próximo mes"
+                          className="px-2 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold rounded shadow transition cursor-pointer"
+                          title="Pagar y avanzar un mes"
                         >
-                          ✔ Pagar & Renovar Mes
+                          ✔ Pagar
                         </button>
                       ) : (
-                        <span className="text-blue-400 text-[10px] font-bold bg-blue-950 px-2 py-1 rounded border border-blue-800">
-                          Pagado (Próx: {task.due_date})
+                        <span className="text-blue-400 text-[9px] font-bold bg-blue-950 px-1.5 py-1 rounded border border-blue-800">
+                          Pagado
                         </span>
                       )}
+
+                      <button
+                        onClick={() => openEditModal(task)}
+                        className="px-2 py-1.5 bg-sky-950 hover:bg-sky-900 text-sky-300 text-[10px] font-bold rounded border border-sky-800 transition cursor-pointer"
+                        title="Editar cualquier error o detalle"
+                      >
+                        ✏️ Editar
+                      </button>
+
                       <button
                         onClick={() => handleDeleteTask(task.id)}
                         className="px-2 py-1.5 bg-rose-950 hover:bg-rose-900 text-rose-300 text-[10px] font-bold rounded border border-rose-800 transition cursor-pointer"
-                        title="Eliminar registro"
+                        title="Eliminar actividad"
                       >
                         🗑️
                       </button>
@@ -407,18 +487,20 @@ export default function TaskGuardDashboard() {
             </div>
           </div>
 
-          {/* Modal para Agregar Nueva Tarea / Gasto */}
+          {/* MODAL DE CREAR / EDITAR */}
           {showAddModal && (
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex justify-center items-center p-4 z-50 print:hidden">
               <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 w-full max-w-md shadow-2xl">
-                <h3 className="text-base font-bold text-white mb-4">Agregar Nueva Obligación o Actividad</h3>
-                <form onSubmit={handleAddTask} className="space-y-4">
+                <h3 className="text-base font-bold text-white mb-4">
+                  {editingTask ? '✏️ Editar Obligación o Actividad' : '➕ Nueva Obligación o Actividad'}
+                </h3>
+                <form onSubmit={handleSaveTask} className="space-y-4">
                   <div>
                     <label className="block text-xs text-slate-400 mb-1">Título / Concepto</label>
                     <input
                       type="text"
-                      value={newTitle}
-                      onChange={(e) => setNewTitle(e.target.value)}
+                      value={formTitle}
+                      onChange={(e) => setFormTitle(e.target.value)}
                       placeholder="Ej. iFax (Blessing Hands)"
                       className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white focus:outline-none focus:border-blue-500"
                       required
@@ -428,8 +510,8 @@ export default function TaskGuardDashboard() {
                     <div>
                       <label className="block text-xs text-slate-400 mb-1">Categoría</label>
                       <select
-                        value={newCategory}
-                        onChange={(e) => setNewCategory(e.target.value as any)}
+                        value={formCategory}
+                        onChange={(e) => setFormCategory(e.target.value as any)}
                         className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white focus:outline-none"
                       >
                         <option value="Negocio (BH)">Negocio (Blessing Hands)</option>
@@ -442,19 +524,19 @@ export default function TaskGuardDashboard() {
                       <label className="block text-xs text-slate-400 mb-1">Monto ($ USD)</label>
                       <input
                         type="number"
-                        value={newAmount}
-                        onChange={(e) => setNewAmount(Number(e.target.value))}
+                        value={formAmount}
+                        onChange={(e) => setFormAmount(Number(e.target.value))}
                         className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white focus:outline-none"
                       />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="block text-xs text-slate-400 mb-1">Fecha de Vencimiento / Pago</label>
+                      <label className="block text-xs text-slate-400 mb-1">Fecha de Vencimiento</label>
                       <input
                         type="date"
-                        value={newDueDate}
-                        onChange={(e) => setNewDueDate(e.target.value)}
+                        value={formDueDate}
+                        onChange={(e) => setFormDueDate(e.target.value)}
                         className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white focus:outline-none"
                         required
                       />
@@ -462,8 +544,8 @@ export default function TaskGuardDashboard() {
                     <div>
                       <label className="block text-xs text-slate-400 mb-1">Prioridad</label>
                       <select
-                        value={newPriority}
-                        onChange={(e) => setNewPriority(e.target.value as any)}
+                        value={formPriority}
+                        onChange={(e) => setFormPriority(e.target.value as any)}
                         className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white focus:outline-none"
                       >
                         <option value="Alta">Alta</option>
@@ -475,8 +557,8 @@ export default function TaskGuardDashboard() {
                   <div>
                     <label className="block text-xs text-slate-400 mb-1">Descripción / Notas</label>
                     <textarea
-                      value={newDesc}
-                      onChange={(e) => setNewDesc(e.target.value)}
+                      value={formDesc}
+                      onChange={(e) => setFormDesc(e.target.value)}
                       className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white focus:outline-none"
                       rows={2}
                     />
@@ -485,8 +567,8 @@ export default function TaskGuardDashboard() {
                     <label className="flex items-center space-x-2 cursor-pointer">
                       <input
                         type="checkbox"
-                        checked={newRecurring}
-                        onChange={(e) => setNewRecurring(e.target.checked)}
+                        checked={formRecurring}
+                        onChange={(e) => setFormRecurring(e.target.checked)}
                         className="rounded cursor-pointer"
                       />
                       <span>Renovación automática mensual</span>
@@ -494,8 +576,8 @@ export default function TaskGuardDashboard() {
                     <label className="flex items-center space-x-2 cursor-pointer">
                       <input
                         type="checkbox"
-                        checked={newPhi}
-                        onChange={(e) => setNewPhi(e.target.checked)}
+                        checked={formPhi}
+                        onChange={(e) => setFormPhi(e.target.checked)}
                         className="rounded cursor-pointer"
                       />
                       <span className="text-rose-300">🔒 PHI</span>
@@ -513,7 +595,7 @@ export default function TaskGuardDashboard() {
                       type="submit"
                       className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded cursor-pointer"
                     >
-                      Guardar Obligación
+                      {editingTask ? 'Actualizar Cambios' : 'Guardar Obligación'}
                     </button>
                   </div>
                 </form>
