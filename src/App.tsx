@@ -27,37 +27,37 @@ export default function TaskGuardDashboard() {
     {
       id: '1',
       title: 'Seguimiento de laboratorio - Paciente B',
-      description: 'Valores críticos pendientes de revisión preoperatoria.',
+      description: 'Valores críticos pendientes de revisión y ajuste de tratamiento.',
       category: 'Clinica',
       priority: 'Alta',
       status: 'Pendiente',
       phi_flag: true,
       bot_access: false,
-      due_date: '2026-10-12', // Vencida hace varios días (Debe ir arriba)
+      due_date: '2026-10-12', // Vencida -> Rojo
       created_at: '2026-10-05',
     },
     {
       id: '2',
       title: 'Revisión de resultados de laboratorio - Paciente A',
-      description: 'Cita médica y verificación de valores críticos de panel metabólico.',
+      description: 'Cita médica y verificación de valores en gabinete.',
       category: 'Clinica',
-      priority: 'Alta',
+      priority: 'Media',
       status: 'Pendiente',
       phi_flag: true,
       bot_access: false,
-      due_date: '2026-10-18', // Vence HOY
+      due_date: '2026-10-19', // Vence mañana/hoy -> Amarillo
       created_at: '2026-10-10',
     },
     {
       id: '3',
       title: 'Organizar agenda semanal de consultas',
-      description: 'Planificar horarios de atención generales y guardias.',
+      description: 'Planificar horarios de atención y recordatorios generales.',
       category: 'Administrativa',
-      priority: 'Media',
+      priority: 'Baja',
       status: 'Pendiente',
       phi_flag: false,
       bot_access: true,
-      due_date: '2026-10-30', // Futuro lejana (Debe ir abajo)
+      due_date: '2026-10-30', // Futuro -> Verde
       created_at: '2026-10-18',
     },
   ]);
@@ -93,7 +93,7 @@ export default function TaskGuardDashboard() {
     fetchFromSupabase();
 
     const channel = supabase
-      .channel('schema-db-changes-v4')
+      .channel('schema-db-changes-v5')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'tasks' },
@@ -258,7 +258,7 @@ export default function TaskGuardDashboard() {
       phi_flag: newPhiFlag,
       bot_access: newBotAccess,
       due_date: newDueDate,
-      created_at: '2026-10-18',
+      created_at: '2026-10-19',
     };
 
     setTasks((prev) => [newTask, ...prev]);
@@ -285,29 +285,40 @@ export default function TaskGuardDashboard() {
     }
   };
 
-  const getDueDateStatus = (dueDateStr: string) => {
-    if (!dueDateStr) return { text: 'Sin fecha', status: 'upcoming', days: 999 };
-    const today = new Date('2026-10-18');
+  // Función para determinar el estado del semáforo y los días exactos
+  const getTrafficLightStatus = (dueDateStr: string, priority: string) => {
+    const today = new Date('2026-10-19');
     const dueDate = new Date(dueDateStr);
     const diffTime = dueDate.getTime() - today.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-    if (diffDays < 0) {
-      return { text: `Vencida por ${Math.abs(diffDays)} ${Math.abs(diffDays) === 1 ? 'día' : 'días'}`, status: 'expired', days: diffDays };
-    } else if (diffDays === 0) {
-      return { text: 'Vence HOY', status: 'today', days: 0 };
+    if (diffDays < 0 || priority === 'Alta') {
+      return {
+        indicator: 'bg-rose-500 animate-pulse',
+        badge: 'bg-rose-950 text-rose-400 border border-rose-800',
+        text: diffDays < 0 ? `Vencida (${Math.abs(diffDays)} ${Math.abs(diffDays) === 1 ? 'día' : 'días'})` : 'Crítico / Alta',
+      };
+    } else if (diffDays <= 2 || priority === 'Media') {
+      return {
+        indicator: 'bg-amber-500',
+        badge: 'bg-amber-950 text-amber-400 border border-amber-800',
+        text: diffDays === 0 ? 'Vence HOY' : `Próximo (${diffDays}d)`,
+      };
     } else {
-      return { text: `Faltan ${diffDays} ${diffDays === 1 ? 'día' : 'días'}`, status: 'upcoming', days: diffDays };
+      return {
+        indicator: 'bg-emerald-500',
+        badge: 'bg-emerald-950 text-emerald-400 border border-emerald-800',
+        text: `A tiempo (${diffDays}d)`,
+      };
     }
   };
 
-  // FILTRAR Y ORDENAR JERÁRQUICAMENTE: Las más vencidas (números negativos más bajos) van primero
   const filteredTasks = activeTab === 'Todas' ? tasks : tasks.filter((t) => t.category === activeTab);
 
   const sortedTasks = [...filteredTasks].sort((a, b) => {
     const dateA = new Date(a.due_date).getTime();
     const dateB = new Date(b.due_date).getTime();
-    return dateA - dateB; // Orden cronológico estricto: Las fechas más antiguas (vencidas) quedan arriba
+    return dateA - dateB; // Jerarquía: Las más vencidas arriba
   });
 
   return (
@@ -371,7 +382,7 @@ export default function TaskGuardDashboard() {
             </div>
           )}
 
-          {/* Filtros de Categoría */}
+          {/* Filtros de Categoría y Botón de Nueva Tarea */}
           <div className="flex justify-between items-center mb-6">
             <div className="flex space-x-2">
               {(['Todas', 'Clinica', 'Administrativa', 'Personal'] as const).map((tab) => (
@@ -396,22 +407,43 @@ export default function TaskGuardDashboard() {
             </button>
           </div>
 
-          {/* Grid de Tareas Ordenadas Jerárquicamente */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {sortedTasks.map((task) => {
-              const dueInfo = getDueDateStatus(task.due_date);
+          {/* LISTA JERÁRQUICA DE ACTIVIDADES CON SEMÁFORO */}
+          <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden shadow-xl">
+            <div className="grid grid-cols-12 bg-slate-800/90 px-4 py-3 border-b border-slate-700 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+              <div className="col-span-1 text-center">Semáforo</div>
+              <div className="col-span-4">Actividad / Cita</div>
+              <div className="col-span-2">Categoría & PHI</div>
+              <div className="col-span-2">Fecha / Estado</div>
+              <div className="col-span-3 text-right">Control de Bots</div>
+            </div>
 
-              return (
-                <div
-                  key={task.id}
-                  className={`bg-slate-800 border rounded-xl p-4 flex flex-col justify-between transition hover:border-slate-600 ${
-                    task.phi_flag ? 'border-rose-500/50 shadow-rose-950/20 shadow-lg' : 'border-slate-700'
-                  }`}
-                >
-                  <div>
-                    <div className="flex justify-between items-start mb-2">
+            <div className="divide-y divide-slate-700/60">
+              {sortedTasks.map((task) => {
+                const traffic = getTrafficLightStatus(task.due_date, task.priority);
+
+                return (
+                  <div
+                    key={task.id}
+                    className="grid grid-cols-12 px-4 py-3 items-center hover:bg-slate-750/70 transition text-xs"
+                  >
+                    {/* Semáforo (Indicador visual) */}
+                    <div className="col-span-1 flex justify-center items-center">
                       <span
-                        className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
+                        className={`w-3.5 h-3.5 rounded-full shadow-md ${traffic.indicator}`}
+                        title={traffic.text}
+                      ></span>
+                    </div>
+
+                    {/* Información Principal */}
+                    <div className="col-span-4 pr-2">
+                      <h4 className="font-bold text-white text-sm mb-0.5">{task.title}</h4>
+                      <p className="text-slate-400 text-[11px] truncate">{task.description}</p>
+                    </div>
+
+                    {/* Categoría y PHI */}
+                    <div className="col-span-2 flex flex-col space-y-1">
+                      <span
+                        className={`inline-block text-[10px] uppercase font-bold px-2 py-0.5 rounded w-fit ${
                           task.category === 'Clinica'
                             ? 'bg-purple-950 text-purple-300 border border-purple-800'
                             : task.category === 'Administrativa'
@@ -422,74 +454,41 @@ export default function TaskGuardDashboard() {
                         {task.category === 'Clinica' ? 'Clínica' : task.category}
                       </span>
                       {task.phi_flag && (
-                        <span className="text-[10px] bg-rose-950 text-rose-400 border border-rose-800 px-2 py-0.5 rounded font-mono font-semibold">
+                        <span className="text-[9px] bg-rose-950 text-rose-400 border border-rose-800 px-1.5 py-0.5 rounded font-mono font-semibold w-fit">
                           🔒 PHI / HIPAA
                         </span>
                       )}
                     </div>
 
-                    <h3 className="text-sm font-bold text-white mb-1">{task.title}</h3>
-                    <p className="text-xs text-slate-400 line-clamp-2 mb-3">{task.description}</p>
-
-                    {/* Sección de Estado Temporal Visible */}
-                    <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-700/60 mb-3">
-                      <div className="flex justify-between items-center text-[11px] mb-1">
-                        <span className="text-slate-400">Fecha / Cita:</span>
-                        <span className="text-slate-200 font-mono font-bold">{task.due_date}</span>
-                      </div>
-                      <div className="flex justify-between items-center text-[11px] pt-1 border-t border-slate-800">
-                        <span className="text-slate-400">Jerarquía:</span>
-                        <span
-                          className={`font-bold px-1.5 py-0.5 rounded text-[10px] ${
-                            dueInfo.status === 'expired'
-                              ? 'bg-rose-950 text-rose-400 border border-rose-800 animate-pulse'
-                              : dueInfo.status === 'today'
-                              ? 'bg-amber-950 text-amber-400 border border-amber-800'
-                              : 'bg-emerald-950 text-emerald-400 border border-emerald-800'
-                          }`}
-                        >
-                          {dueInfo.text}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="pt-3 border-t border-slate-700 flex flex-col space-y-3">
-                    <div className="flex justify-between items-center text-xs">
+                    {/* Fecha y Estado Temporal */}
+                    <div className="col-span-2">
+                      <span className="font-mono font-semibold text-slate-200 block text-xs">
+                        {task.due_date}
+                      </span>
                       <span
-                        className={`font-semibold ${
-                          task.priority === 'Alta'
-                            ? 'text-rose-400'
-                            : task.priority === 'Media'
-                            ? 'text-amber-400'
-                            : 'text-emerald-400'
-                        }`}
+                        className={`inline-block font-bold px-1.5 py-0.5 rounded text-[10px] mt-1 ${traffic.badge}`}
                       >
-                        Prioridad: {task.priority}
-                      </span>
-                      <span className="text-slate-400 bg-slate-900 px-2 py-1 rounded">
-                        {task.status}
+                        {traffic.text}
                       </span>
                     </div>
 
-                    {/* Control de Acceso para Bots */}
-                    <div className="flex justify-between items-center bg-slate-900/60 p-2 rounded-lg border border-slate-700/50">
-                      <span className="text-[11px] text-slate-300 font-medium">Acceso para Bots:</span>
+                    {/* Control de Acceso para Bots (Dots / Musa) */}
+                    <div className="col-span-3 flex justify-end items-center space-x-2">
                       <button
                         onClick={() => toggleBotAccess(task.id)}
-                        className={`px-2.5 py-1 text-[10px] font-bold rounded transition cursor-pointer ${
+                        className={`px-2.5 py-1.5 text-[10px] font-bold rounded transition shadow-sm cursor-pointer ${
                           task.bot_access
                             ? 'bg-emerald-950 text-emerald-400 border border-emerald-700 hover:bg-emerald-900'
                             : 'bg-rose-950 text-rose-400 border border-rose-700 hover:bg-rose-900'
                         }`}
                       >
-                        {task.bot_access ? '✔ Permitido (Dots/Musa)' : '✖ Bloqueado (Privado)'}
+                        {task.bot_access ? '✔ Bots Permitidos' : '✖ Bots Bloqueados'}
                       </button>
                     </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         </main>
       </div>
