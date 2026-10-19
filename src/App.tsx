@@ -488,13 +488,14 @@ export default function TaskGuardDashboard() {
 
           {/* Table List */}
           <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden shadow-xl">
-            <div className="grid grid-cols-12 bg-slate-800/90 px-4 py-3 border-b border-slate-700 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+            {/* Table Header with proper column spacing */}
+            <div className="grid grid-cols-12 bg-slate-850 px-4 py-3 border-b border-slate-700 text-[11px] font-bold text-slate-400 uppercase tracking-wider items-center gap-2">
               <div className="col-span-1 text-center">Status</div>
               <div className="col-span-3">Item / Activity or Bill</div>
               <div className="col-span-2">Type & Category</div>
-              <div className="col-span-1 text-right">Amount</div>
-              <div className="col-span-2">Due Date</div>
-              <div className="col-span-3 text-center">Actions & Management</div>
+              <div className="col-span-2 text-right pr-3 border-r border-slate-700/60">Amount</div>
+              <div className="col-span-2 pl-3">Due Date</div>
+              <div className="col-span-2 text-center">Actions & Management</div>
             </div>
 
             <div className="divide-y divide-slate-700/60">
@@ -511,7 +512,7 @@ export default function TaskGuardDashboard() {
                   return (
                     <div
                       key={item.id}
-                      className="grid grid-cols-12 px-4 py-3 items-center hover:bg-slate-750/70 transition text-xs"
+                      className="grid grid-cols-12 px-4 py-3 items-center hover:bg-slate-750/70 transition text-xs gap-2"
                     >
                       <div className="col-span-1 flex justify-center items-center">
                         <span className={`w-3.5 h-3.5 rounded-full shadow-md ${traffic.indicator}`} title={traffic.text}></span>
@@ -528,7 +529,7 @@ export default function TaskGuardDashboard() {
                           >
                             {item.type === 'Bill' ? '💳 Bill' : '📋 Activity'}
                           </span>
-                          <h4 className="font-bold text-white text-sm">{item.title}</h4>
+                          <h4 className="font-bold text-white text-sm truncate">{item.title}</h4>
                         </div>
                         <p className="text-slate-400 text-[11px] truncate">{item.description}</p>
                       </div>
@@ -544,30 +545,36 @@ export default function TaskGuardDashboard() {
                         )}
                       </div>
 
-                      <div className="col-span-1 text-right font-mono font-bold">
+                      {/* AMOUNT COLUMN (Dedicated 2 cols, clearly separated) */}
+                      <div className="col-span-2 text-right pr-3 border-r border-slate-700/60 font-mono">
                         {item.type === 'Bill' ? (
                           <div>
-                            <span className="text-emerald-400">${item.amount}</span>
+                            <span className="text-emerald-400 font-bold text-sm block">
+                              ${item.amount.toLocaleString()}
+                            </span>
                             {item.installments.length > 0 && (
-                              <span className="block text-[9px] text-amber-400 font-semibold">
-                                Rem: ${remaining}
+                              <span className="block text-[10px] text-amber-400 font-medium">
+                                Rem: ${remaining.toLocaleString()}
                               </span>
                             )}
                           </div>
                         ) : (
-                          <span className="text-slate-500 font-normal">-</span>
+                          <span className="text-slate-500 font-normal text-xs">-</span>
                         )}
                       </div>
 
-                      <div className="col-span-2">
-                        <span className="font-mono font-semibold text-slate-200 block text-xs">{item.due_date}</span>
-                        <span className={`inline-block font-bold px-1.5 py-0.5 rounded text-[10px] mt-1 ${traffic.badge}`}>
+                      {/* DUE DATE COLUMN (Dedicated 2 cols with left padding) */}
+                      <div className="col-span-2 pl-3">
+                        <span className="font-mono font-semibold text-slate-200 block text-xs tracking-tight">
+                          📅 {item.due_date}
+                        </span>
+                        <span className={`inline-block font-bold px-2 py-0.5 rounded text-[10px] mt-1 ${traffic.badge}`}>
                           {traffic.text}
                         </span>
                       </div>
 
                       {/* Tailored Actions: Bill vs Task */}
-                      <div className="col-span-3 flex justify-end items-center space-x-1.5 print:hidden">
+                      <div className="col-span-2 flex justify-end items-center space-x-1.5 print:hidden">
                         <button
                           onClick={() => setViewingItem(item)}
                           className="px-2 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 text-[10px] font-bold rounded border border-slate-600 cursor-pointer"
