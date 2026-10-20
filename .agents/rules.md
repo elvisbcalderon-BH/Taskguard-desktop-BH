@@ -1,4 +1,4 @@
-﻿# Global Standards & Autonomous Engineering Rules
+# Global Standards & Autonomous Engineering Rules
 
 Este proyecto tiene reglas activas de forma permanente. El asistente debe aplicar SIEMPRE los siguientes estándares en cada respuesta o cambio de código:
 
@@ -23,3 +23,16 @@ Este proyecto tiene reglas activas de forma permanente. El asistente debe aplica
 - **Verificación y Pruebas**:
   - Validar los cambios de código antes de darlos por concluidos.
   - Mantener los componentes modulares y desacoplados para facilitar pruebas unitarias y de integración.
+
+## 3. Regla Obligatoria de Despliegue: Conector GitHub Auto-Updater en Todo Programa
+Cada vez que se diseñe, construya o actualice una aplicación de escritorio o web en el ecosistema, es **REGLA OBLIGATORIA** integrar el conector de actualización continua con GitHub:
+- **Chequeo Interno en Segundo Plano (Cada 3 Horas)**:
+  - El componente raíz debe incluir un temporizador cíclico cada 3 horas (`3 * 60 * 60 * 1000` ms) que consulte la API de commits de GitHub (`/repos/:owner/:repo/commits/main`) para verificar si existe una nueva versión (`remoteSha !== CURRENT_COMMIT_HASH`).
+  - Si hay actualización disponible, mostrar banner superior interactivo con botón *"Refresh to Apply"* e indicador visual animado (*"Update Ready"*).
+- **Botón Manual de Sincronización en Header (`☁️ vX.X`)**:
+  - En la barra superior debe existir siempre un botón visible con la versión actual que permita al usuario forzar la comprobación en tiempo real.
+- **Sincronización Automática en Lanzador (`launch-production.bat`)**:
+  - El script lanzador de producción debe ejecutar de forma silenciosa un `git pull origin main` al abrirse para garantizar que cualquier PC obtenga las últimas mejoras antes de inicializar la ventana.
+- **Persistencia Híbrida Segura**:
+  - Todos los datos del usuario deben sincronizarse con la base de datos remota (Supabase) y tener respaldo reactivo en `localStorage` para que la información se comparta en tiempo real entre múltiples PCs sin sobrescribirse.
+
