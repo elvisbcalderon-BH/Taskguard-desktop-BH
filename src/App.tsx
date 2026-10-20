@@ -22,6 +22,8 @@ export interface Item {
   due_date: string;
   recurring_monthly: boolean;
   installments: Installment[];
+  is_new?: boolean;
+  created_at?: string;
 }
 
 export default function TaskGuardDashboard() {
@@ -237,12 +239,66 @@ export default function TaskGuardDashboard() {
     };
   }, []);
 
-  // Sincronización Realtime con Supabase
+  // Notification for newly added tasks / bills
+  const [newActivityAlert, setNewActivityAlert] = useState<Item | null>(null);
+
+  // Play subtle audio alert for new task notification
+  const playNotificationPing = () => {
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5
+      osc.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.15); // A5
+      gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.35);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.35);
+    } catch (e) {
+      // AudioContext blocked or not supported
+    }
+  };
+
+  // Sincronización Realtime con Supabase & Detector de Tareas Nuevas
   useEffect(() => {
     fetchFromSupabase();
 
     const channel = supabase
-      .channel('schema-db-changes-v11-tasks-bills')
+      .channel('schema-db-changes-v12-tasks-bills')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'tasks' },
+        (payload) => {
+          if (payload.new) {
+            const raw = payload.new as any;
+            const itemType: 'Task' | 'Bill' = raw.type === 'Task' ? 'Task' : (raw.amount > 0 ? 'Bill' : 'Task');
+            const newlyCreated: Item = {
+              id: raw.id,
+              type: itemType,
+              title: raw.title,
+              description: raw.description || '',
+              category: raw.category || 'Business (BH)',
+              priority: raw.priority || 'High',
+              amount: Number(raw.amount || 0),
+              status: raw.status || 'Pending',
+              phi_flag: !!raw.phi_flag,
+              bot_access: !raw.phi_flag,
+              due_date: raw.due_date ? raw.due_date.substring(0, 10) : '2026-10-20',
+              recurring_monthly: !!raw.recurring_monthly,
+              installments: Array.isArray(raw.installments) ? raw.installments : [],
+              is_new: true,
+              created_at: raw.created_at || new Date().toISOString(),
+            };
+
+            setNewActivityAlert(newlyCreated);
+            playNotificationPing();
+            fetchFromSupabase();
+          }
+        }
+      )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'tasks' },
@@ -596,9 +652,11 @@ export default function TaskGuardDashboard() {
         due_date: formDueDate,
         recurring_monthly: formType === 'Bill' ? formRecurring : false,
         installments: [],
+        is_new: true,
+        created_at: new Date().toISOString(),
       };
 
-      setItems((prev) => [...prev, newItem]);
+      setItems((prev) => [newItem, ...prev]);
 
       try {
         await supabase.from('tasks').insert([
@@ -892,6 +950,50 @@ export default function TaskGuardDashboard() {
         </div>
       </header>
 
+      {/* Real-time New Task / Bill Activity Notification Banner */}
+      {newActivityAlert && (
+        <div className="bg-gradient-to-r from-blue-950 via-slate-900 to-emerald-950 border-b-2 border-emerald-500 px-6 py-3 flex items-center justify-between text-xs shadow-2xl animate-bounce print:hidden">
+          <div className="flex items-center space-x-3">
+            <span className="text-xl">🔔</span>
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="font-extrabold text-emerald-400 uppercase tracking-wider text-[11px]">
+                  New {newActivityAlert.type === 'Bill' ? 'Bill / Payment' : 'Task'} Added!
+                </span>
+                <span className="bg-slate-800 text-slate-300 px-2 py-0.5 rounded text-[10px] font-mono border border-slate-700">
+                  {newActivityAlert.category}
+                </span>
+              </div>
+              <p className="text-white font-bold text-sm mt-0.5 leading-snug">
+                "{newActivityAlert.title}"
+                {newActivityAlert.amount > 0 && (
+                  <span className="text-emerald-400 font-mono ml-2">(${newActivityAlert.amount} USD)</span>
+                )}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={() => {
+                setViewingItem(newActivityAlert);
+                setNewActivityAlert(null);
+              }}
+              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg shadow-lg transition cursor-pointer flex items-center space-x-1.5"
+            >
+              <span>👁️ View Details</span>
+            </button>
+            <button
+              onClick={() => setNewActivityAlert(null)}
+              className="text-slate-400 hover:text-white px-2 py-1 text-sm font-bold cursor-pointer"
+              title="Close notification"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* GitHub Update Notification Banner */}
       {updateAvailable?.hasUpdate && (
         <div className="bg-gradient-to-r from-amber-950 via-slate-900 to-amber-950 border-b border-amber-800/80 px-6 py-2.5 flex items-center justify-between text-xs print:hidden">
@@ -1027,6 +1129,20 @@ export default function TaskGuardDashboard() {
                           >
                             {item.type === 'Bill' ? '💳 Bill' : '📋 Task'}
                           </span>
+                          {item.is_new && (
+                            <span
+                              className="text-[9px] px-2 py-0.5 rounded-full font-extrabold uppercase shrink-0 bg-gradient-to-r from-amber-500 to-rose-500 text-slate-950 shadow-md animate-pulse cursor-pointer"
+                              title="New item! Click to acknowledge"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setItems((prev) =>
+                                  prev.map((i) => (i.id === item.id ? { ...i, is_new: false } : i))
+                                );
+                              }}
+                            >
+                              ✨ NEW
+                            </span>
+                          )}
                           <h4 className="font-bold text-white text-sm leading-tight break-words" title={item.title}>
                             {item.title}
                           </h4>
