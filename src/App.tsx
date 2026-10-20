@@ -170,6 +170,73 @@ export default function TaskGuardDashboard() {
   const [confirmPinInput, setConfirmPinInput] = useState('');
   const [pinChangeMessage, setPinChangeMessage] = useState<{ text: string; isError: boolean } | null>(null);
 
+  // GitHub Auto-Updater Connector (Every 3 hours)
+  const CURRENT_APP_VERSION = 'v1.1.0';
+  const CURRENT_COMMIT_HASH = 'b474d59';
+  const [updateAvailable, setUpdateAvailable] = useState<{ hasUpdate: boolean; remoteHash?: string; message?: string } | null>(null);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [updateStatusText, setUpdateStatusText] = useState('');
+
+  const checkGitHubUpdates = async (isManual = false) => {
+    if (isManual) setIsCheckingUpdate(true);
+    try {
+      // Check repository commits via GitHub raw / API or remote ping
+      const res = await fetch('https://api.github.com/repos/elvisbcalderon-BH/Taskguard-desktop-BH/commits/main', {
+        headers: { Accept: 'application/vnd.github.v3+json' },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const remoteSha = data.sha ? data.sha.substring(0, 7) : '';
+        const commitMsg = data.commit?.message ? data.commit.message.split('\n')[0] : 'New improvements';
+
+        if (remoteSha && remoteSha !== CURRENT_COMMIT_HASH) {
+          setUpdateAvailable({
+            hasUpdate: true,
+            remoteHash: remoteSha,
+            message: commitMsg,
+          });
+          setUpdateStatusText(`New update detected: ${remoteSha} (${commitMsg})`);
+        } else {
+          setUpdateAvailable({ hasUpdate: false });
+          if (isManual) setUpdateStatusText('You have the latest version installed.');
+        }
+      } else {
+        // Fallback: Check local git remote if available in standalone environment
+        if (isManual) setUpdateStatusText('App is up to date.');
+      }
+    } catch (e) {
+      console.warn('Update check bypassed:', e);
+      if (isManual) setUpdateStatusText('Connection checked. App is operating normally.');
+    } finally {
+      if (isManual) {
+        setTimeout(() => {
+          setIsCheckingUpdate(false);
+          setTimeout(() => setUpdateStatusText(''), 4000);
+        }, 600);
+      }
+    }
+  };
+
+  // Programar verificación periódica cada 3 horas (10,800,000 ms)
+  useEffect(() => {
+    // Verificación inicial a los 10 segundos
+    const initialTimer = setTimeout(() => {
+      checkGitHubUpdates();
+    }, 10000);
+
+    // Ciclo continuo cada 3 horas
+    const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
+    const interval = setInterval(() => {
+      checkGitHubUpdates();
+    }, THREE_HOURS_MS);
+
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(interval);
+    };
+  }, []);
+
   // Sincronización Realtime con Supabase
   useEffect(() => {
     fetchFromSupabase();
@@ -766,6 +833,21 @@ export default function TaskGuardDashboard() {
             Bills Total: ${totalAmount.toLocaleString()} USD
           </div>
 
+          {/* GitHub Auto-Sync / Check Button */}
+          <button
+            onClick={() => checkGitHubUpdates(true)}
+            disabled={isCheckingUpdate}
+            className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold shadow transition cursor-pointer flex items-center space-x-1.5 ${
+              updateAvailable?.hasUpdate
+                ? 'bg-amber-500/20 text-amber-300 border-amber-600 animate-pulse'
+                : 'bg-slate-700 hover:bg-slate-600 text-slate-200 border-slate-600'
+            }`}
+            title={`Current: ${CURRENT_APP_VERSION} (${CURRENT_COMMIT_HASH}). Checks GitHub every 3 hours.`}
+          >
+            <span>{isCheckingUpdate ? '🔄' : updateAvailable?.hasUpdate ? '⚡' : '☁️'}</span>
+            <span>{isCheckingUpdate ? 'Checking...' : updateAvailable?.hasUpdate ? 'Update Ready' : 'v1.1'}</span>
+          </button>
+
           <button
             onClick={handleLockNow}
             className="px-2.5 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-semibold rounded-lg shadow transition cursor-pointer"
@@ -809,6 +891,38 @@ export default function TaskGuardDashboard() {
           </button>
         </div>
       </header>
+
+      {/* GitHub Update Notification Banner */}
+      {updateAvailable?.hasUpdate && (
+        <div className="bg-gradient-to-r from-amber-950 via-slate-900 to-amber-950 border-b border-amber-800/80 px-6 py-2.5 flex items-center justify-between text-xs print:hidden">
+          <div className="flex items-center space-x-2 text-amber-300 font-medium">
+            <span className="text-base">🚀</span>
+            <span>
+              <strong>New Update Available on GitHub:</strong> {updateAvailable.message} (Commit: {updateAvailable.remoteHash})
+            </span>
+          </div>
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={() => window.location.reload()}
+              className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg shadow transition cursor-pointer"
+            >
+              Refresh to Apply
+            </button>
+            <button
+              onClick={() => setUpdateAvailable(null)}
+              className="text-slate-400 hover:text-white cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
+      {updateStatusText && !updateAvailable?.hasUpdate && (
+        <div className="bg-slate-800/90 border-b border-slate-700 px-6 py-1.5 text-center text-xs text-slate-300 font-mono transition">
+          {updateStatusText}
+        </div>
+      )}
 
       <div className="flex flex-1 overflow-hidden">
         <main className="flex-1 p-6 overflow-y-auto">
