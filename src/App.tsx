@@ -28,9 +28,9 @@ export default function TaskGuardDashboard() {
   const [items, setItems] = useState<Item[]>(() => {
     try {
       const saved = localStorage.getItem('taskguard_items_v2');
-      if (saved) {
+      if (saved !== null) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
+        if (Array.isArray(parsed)) {
           return parsed;
         }
       }
@@ -558,13 +558,20 @@ export default function TaskGuardDashboard() {
   };
 
   const handleDeleteItem = async (id: string) => {
-    setItems((prev) => prev.filter((i) => i.id !== id));
-    if (id.length > 20) {
+    setItems((prev) => {
+      const updated = prev.filter((i) => i.id !== id);
       try {
-        await supabase.from('tasks').delete().eq('id', id);
-      } catch (err) {
-        console.warn('Error deleting in Supabase:', err);
+        localStorage.setItem('taskguard_items_v2', JSON.stringify(updated));
+      } catch (e) {
+        console.warn('Error saving deletion locally:', e);
       }
+      return updated;
+    });
+
+    try {
+      await supabase.from('tasks').delete().eq('id', id);
+    } catch (err) {
+      console.warn('Error deleting in Supabase:', err);
     }
   };
 
