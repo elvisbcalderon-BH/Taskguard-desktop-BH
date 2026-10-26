@@ -275,10 +275,16 @@ export default function TaskGuardDashboard() {
     }
   };
 
-  // Sincronización Realtime con Supabase & Detector de Tareas Nuevas
+  // Sincronización Automática Continua (Realtime + Polling cada 8 segundos)
   useEffect(() => {
     fetchFromSupabase();
 
+    // 1. Polling de sincronización periódica automática cada 8 segundos
+    const syncInterval = setInterval(() => {
+      fetchFromSupabase();
+    }, 8000);
+
+    // 2. Canal Realtime por WebSockets para actualización instantánea
     const channel = supabase
       .channel('schema-db-changes-v12-tasks-bills')
       .on(
@@ -320,6 +326,7 @@ export default function TaskGuardDashboard() {
       .subscribe();
 
     return () => {
+      clearInterval(syncInterval);
       supabase.removeChannel(channel);
     };
   }, []);
