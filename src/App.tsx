@@ -811,8 +811,13 @@ export default function TaskGuardDashboard() {
 
       setItems((prev) => [newItem, ...prev]);
 
+      let safeDueDate: string | null = null;
+      if (newItem.due_date && !isNaN(new Date(newItem.due_date).getTime())) {
+        safeDueDate = new Date(newItem.due_date).toISOString();
+      }
+
       try {
-        await supabase.from('tasks').insert([
+        const { error: insErr } = await supabase.from('tasks').insert([
           {
             type: newItem.type,
             title: newItem.title,
@@ -822,12 +827,20 @@ export default function TaskGuardDashboard() {
             recurring_monthly: newItem.recurring_monthly,
             phi_flag: newItem.phi_flag,
             bot_access: newItem.bot_access,
-            due_date: new Date(newItem.due_date).toISOString(),
+            due_date: safeDueDate,
             installments: [],
           },
         ]);
-      } catch (err) {
-        console.warn('Error saving in Supabase:', err);
+
+        if (insErr) {
+          console.error('Supabase insert error:', insErr);
+          alert('Error al sincronizar con la nube: ' + insErr.message);
+        } else {
+          // Recargar inmediatamente de la base de datos para sincronizar IDs
+          fetchFromSupabase();
+        }
+      } catch (err: any) {
+        console.error('Error saving in Supabase:', err);
       }
     }
 
