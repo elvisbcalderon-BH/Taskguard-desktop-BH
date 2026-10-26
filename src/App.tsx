@@ -816,13 +816,18 @@ export default function TaskGuardDashboard() {
         safeDueDate = new Date(newItem.due_date).toISOString();
       }
 
+      // Mapear categoría compatible tanto con ENUM legacy como con TEXT
+      let dbCategory = newItem.category;
+      if (newItem.category === 'Clinical') dbCategory = 'Clinica' as any;
+      if (newItem.category === 'Administrative') dbCategory = 'Administrativa' as any;
+
       try {
         const { error: insErr } = await supabase.from('tasks').insert([
           {
             type: newItem.type,
             title: newItem.title,
             description: newItem.description,
-            category: newItem.category,
+            category: dbCategory,
             amount: newItem.amount,
             recurring_monthly: newItem.recurring_monthly,
             phi_flag: newItem.phi_flag,
@@ -834,7 +839,7 @@ export default function TaskGuardDashboard() {
 
         if (insErr) {
           console.error('Supabase insert error:', insErr);
-          alert('Error al sincronizar con la nube: ' + insErr.message);
+          alert('Error al guardar en Supabase: ' + insErr.message);
         } else {
           // Recargar inmediatamente de la base de datos para sincronizar IDs
           fetchFromSupabase();
