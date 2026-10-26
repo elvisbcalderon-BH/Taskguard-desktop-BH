@@ -1097,6 +1097,16 @@ export default function TaskGuardDashboard() {
             Bills Total: ${totalAmount.toLocaleString()} USD
           </div>
 
+          {/* Manual Cloud Sync Button */}
+          <button
+            onClick={() => fetchFromSupabase()}
+            className="px-2.5 py-1.5 bg-blue-950/80 hover:bg-blue-900 border border-blue-700/80 text-blue-300 text-xs font-semibold rounded-lg shadow transition cursor-pointer flex items-center space-x-1.5"
+            title="Sincronizar tareas y pagos con la nube ahora mismo"
+          >
+            <span>🔄</span>
+            <span>Cloud Sync</span>
+          </button>
+
           {/* GitHub Auto-Sync / Check Button */}
           <button
             onClick={() => checkGitHubUpdates(true)}
