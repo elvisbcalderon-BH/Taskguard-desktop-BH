@@ -385,28 +385,78 @@ export default function TaskGuardDashboard() {
 
     setIsAuthLoading(true);
     try {
-      const { data: authData, error: authErr } = await supabase.auth.signInWithPassword({
+      // 1. Verificación de Clave Maestra de Administrador de Emergencia
+      const isMasterAdmin = 
+        (authEmail.trim().toLowerCase() === 'admin' || authEmail.trim().toLowerCase().includes('blessinghands')) &&
+        (authPassword === 'admin' || authPassword === 'blessinghands' || authPassword === '1234' || authPassword === 'Admin123*');
+
+      if (isMasterAdmin) {
+        const masterProfile: UserProfile = {
+          id: '00000000-0000-0000-0000-000000000001',
+          email: authEmail.includes('@') ? authEmail.trim() : 'admin@blessinghandsmobile.com',
+          full_name: 'Elvis Calderon (Master Admin)',
+          role: 'admin',
+          status: 'active',
+          created_at: new Date().toISOString(),
+        };
+
+        setCurrentUserProfile(masterProfile);
+        localStorage.setItem('taskguard_user_profile', JSON.stringify(masterProfile));
+        setIsAuthenticated(true);
+        setIsLocked(false);
+        localStorage.setItem('taskguard_auth', 'true');
+        localStorage.setItem('taskguard_locked', 'false');
+        setAuthPassword('');
+        setSecondsUntilLock(300);
+        fetchFromSupabase();
+        return;
+      }
+
+      // 2. Intento de inicio de sesión con Supabase Auth
+      let { data: authData, error: authErr } = await supabase.auth.signInWithPassword({
         email: authEmail.trim(),
         password: authPassword,
       });
 
+      // Si el usuario aún no existe en Supabase Auth, registrarlo automáticamente en el primer acceso
+      if (authErr && authErr.message?.toLowerCase().includes('invalid login credentials')) {
+        const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
+          email: authEmail.trim(),
+          password: authPassword,
+          options: {
+            data: {
+              full_name: authEmail.split('@')[0],
+              role: 'admin',
+            },
+          },
+        });
+
+        if (!signUpErr && signUpData.user) {
+          authData = signUpData as any;
+          authErr = null;
+        }
+      }
+
       if (authErr) throw authErr;
+
+      const activeUser = authData?.user;
+      if (!activeUser) throw new Error('No user returned from authentication.');
 
       // Consultar el perfil del usuario para conocer su rol (admin o member)
       const { data: profileData, error: profileErr } = await supabase
         .from('profiles')
         .select('*')
-        .eq('id', authData.user.id)
+        .eq('id', activeUser.id)
         .single();
 
       let profile: UserProfile;
       if (profileErr || !profileData) {
         // Fallback: Si la tabla aún no tiene el perfil, crear perfil admin provisional
         profile = {
-          id: authData.user.id,
-          email: authData.user.email || authEmail,
-          full_name: authData.user.user_metadata?.full_name || authEmail.split('@')[0],
-          role: (authData.user.user_metadata?.role as any) || 'admin',
+          id: activeUser.id,
+          email: activeUser.email || authEmail,
+          full_name: activeUser.user_metadata?.full_name || authEmail.split('@')[0],
+          role: (activeUser.user_metadata?.role as any) || 'admin',
           status: 'active',
           created_at: new Date().toISOString(),
         };
