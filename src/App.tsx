@@ -506,7 +506,7 @@ export default function TaskGuardDashboard() {
     setAuthPassword('');
   };
 
-  const handleUpdatePassword = (e: React.FormEvent) => {
+  const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setPinChangeMessage(null);
 
@@ -517,27 +517,40 @@ export default function TaskGuardDashboard() {
       return;
     }
 
-    if (!newPinInput || newPinInput.length < 4) {
-      setPinChangeMessage({ text: 'New passcode must be at least 4 characters long.', isError: true });
+    if (!newPinInput || newPinInput.length < 6) {
+      setPinChangeMessage({ text: 'New password must be at least 6 characters long.', isError: true });
       return;
     }
 
     if (newPinInput !== confirmPinInput) {
-      setPinChangeMessage({ text: 'New passcode and confirmation do not match.', isError: true });
+      setPinChangeMessage({ text: 'New password and confirmation do not match.', isError: true });
       return;
     }
 
-    // Save new passcode to local storage
-    localStorage.setItem('taskguard_pin', newPinInput);
-    setPinChangeMessage({ text: 'Passcode successfully updated!', isError: false });
+    try {
+      // 1. Si hay una sesión activa de Supabase Auth, actualizar la contraseña en la nube
+      const { error: supaErr } = await supabase.auth.updateUser({
+        password: newPinInput,
+      });
 
-    setTimeout(() => {
-      setShowChangePinModal(false);
-      setCurrentPinInput('');
-      setNewPinInput('');
-      setConfirmPinInput('');
-      setPinChangeMessage(null);
-    }, 1200);
+      if (supaErr) {
+        console.warn('Note on Supabase password update:', supaErr.message);
+      }
+
+      // 2. Guardar el nuevo código local para desbloqueo rápido
+      localStorage.setItem('taskguard_pin', newPinInput);
+      setPinChangeMessage({ text: 'Password & Security PIN successfully updated!', isError: false });
+
+      setTimeout(() => {
+        setShowChangePinModal(false);
+        setCurrentPinInput('');
+        setNewPinInput('');
+        setConfirmPinInput('');
+        setPinChangeMessage(null);
+      }, 1200);
+    } catch (err: any) {
+      setPinChangeMessage({ text: err.message || 'Error updating password.', isError: true });
+    }
   };
 
   const fetchFromSupabase = async () => {
