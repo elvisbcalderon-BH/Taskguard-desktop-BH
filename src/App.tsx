@@ -387,9 +387,10 @@ export default function TaskGuardDashboard() {
     try {
       // 1. Verificación de Clave Maestra de Administrador de Emergencia
       const lowerEmail = authEmail.trim().toLowerCase();
+      const storedAdminPass = localStorage.getItem('taskguard_admin_password') || 'admin';
       const isMasterAdmin = 
         (lowerEmail === 'admin' || lowerEmail.includes('blessinghands') || lowerEmail.includes('elvisbcalderon')) &&
-        (authPassword === 'admin' || authPassword === 'blessinghands' || authPassword === '1234' || authPassword === 'Admin123*' || authPassword.length >= 6);
+        (authPassword === storedAdminPass || authPassword === 'admin' || authPassword === 'blessinghands' || authPassword === '1234');
 
       if (isMasterAdmin) {
         const masterProfile: UserProfile = {
@@ -538,9 +539,10 @@ export default function TaskGuardDashboard() {
         console.warn('Note on Supabase password update:', supaErr.message);
       }
 
-      // 2. Guardar el nuevo código local para desbloqueo rápido
+      // 2. Guardar la nueva contraseña de Admin y el código local para desbloqueo rápido
+      localStorage.setItem('taskguard_admin_password', newPinInput);
       localStorage.setItem('taskguard_pin', newPinInput);
-      setPinChangeMessage({ text: 'Password & Security PIN successfully updated!', isError: false });
+      setPinChangeMessage({ text: 'Admin Password & Security PIN successfully updated!', isError: false });
 
       setTimeout(() => {
         setShowChangePinModal(false);
