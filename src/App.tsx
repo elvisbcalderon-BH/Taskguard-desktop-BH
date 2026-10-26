@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
 import { TaskGuardLogo } from './components/TaskGuardLogo';
+import { UserManagementModal, type UserProfile } from './components/UserManagementModal';
 
 export interface Installment {
   id: string;
@@ -154,16 +155,28 @@ export default function TaskGuardDashboard() {
   const [formDueDate, setFormDueDate] = useState('');
   const [formRecurring, setFormRecurring] = useState(true);
   const [formPhi, setFormPhi] = useState(false);
-  // Security & Authentication State
+  // Security & Multi-User Authentication State
+  const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(() => {
+    try {
+      const saved = localStorage.getItem('taskguard_user_profile');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     return localStorage.getItem('taskguard_auth') === 'true';
   });
   const [isLocked, setIsLocked] = useState<boolean>(() => {
     return localStorage.getItem('taskguard_locked') === 'true';
   });
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
   const [passcode, setPasscode] = useState('');
   const [loginError, setLoginError] = useState('');
+  const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [secondsUntilLock, setSecondsUntilLock] = useState(300); // 5 minutes = 300s
+  const [showUserModal, setShowUserModal] = useState(false);
 
   // Change PIN / Password Modal State
   const [showChangePinModal, setShowChangePinModal] = useState(false);
@@ -344,22 +357,82 @@ export default function TaskGuardDashboard() {
     };
   }, [isAuthenticated, isLocked]);
 
-  const handleUnlockOrLogin = (e: React.FormEvent) => {
+  // Iniciar sesión con Supabase Auth (Email + Contraseña) o Desbloqueo por PIN si ya inició sesión
+  const handleUnlockOrLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
 
-    // Default password or custom passcode
-    const storedPin = localStorage.getItem('taskguard_pin') || '1234';
+    // Si la sesión ya estaba autenticada pero está bloqueada (pantalla de bloqueo rápido)
+    if (isAuthenticated && isLocked) {
+      const storedPin = localStorage.getItem('taskguard_pin') || '1234';
+      if (passcode === storedPin || passcode === 'admin' || passcode === 'blessinghands') {
+        setIsLocked(false);
+        localStorage.setItem('taskguard_locked', 'false');
+        setPasscode('');
+        setSecondsUntilLock(300);
+        return;
+      } else {
+        setLoginError('Invalid Passcode or PIN. Please try again.');
+        return;
+      }
+    }
 
-    if (passcode === storedPin || passcode === 'admin' || passcode === 'blessinghands') {
+    // Inicio de sesión primario con Supabase Auth
+    if (!authEmail || !authPassword) {
+      setLoginError('Please enter both email and password.');
+      return;
+    }
+
+    setIsAuthLoading(true);
+    try {
+      const { data: authData, error: authErr } = await supabase.auth.signInWithPassword({
+        email: authEmail.trim(),
+        password: authPassword,
+      });
+
+      if (authErr) throw authErr;
+
+      // Consultar el perfil del usuario para conocer su rol (admin o member)
+      const { data: profileData, error: profileErr } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', authData.user.id)
+        .single();
+
+      let profile: UserProfile;
+      if (profileErr || !profileData) {
+        // Fallback: Si la tabla aún no tiene el perfil, crear perfil admin provisional
+        profile = {
+          id: authData.user.id,
+          email: authData.user.email || authEmail,
+          full_name: authData.user.user_metadata?.full_name || authEmail.split('@')[0],
+          role: (authData.user.user_metadata?.role as any) || 'admin',
+          status: 'active',
+          created_at: new Date().toISOString(),
+        };
+      } else {
+        if (profileData.status === 'inactive') {
+          await supabase.auth.signOut();
+          throw new Error('Your user account has been deactivated by the Administrator.');
+        }
+        profile = profileData as UserProfile;
+      }
+
+      setCurrentUserProfile(profile);
+      localStorage.setItem('taskguard_user_profile', JSON.stringify(profile));
+
       setIsAuthenticated(true);
       setIsLocked(false);
       localStorage.setItem('taskguard_auth', 'true');
       localStorage.setItem('taskguard_locked', 'false');
-      setPasscode('');
+      setAuthPassword('');
       setSecondsUntilLock(300);
-    } else {
-      setLoginError('Invalid Passcode or PIN. Please try again.');
+      fetchFromSupabase();
+    } catch (err: any) {
+      console.error('Login error:', err);
+      setLoginError(err.message || 'Authentication failed. Please verify your credentials.');
+    } finally {
+      setIsAuthLoading(false);
     }
   };
 
@@ -368,12 +441,19 @@ export default function TaskGuardDashboard() {
     localStorage.setItem('taskguard_locked', 'true');
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch { }
     setIsAuthenticated(false);
     setIsLocked(false);
+    setCurrentUserProfile(null);
     localStorage.removeItem('taskguard_auth');
     localStorage.removeItem('taskguard_locked');
+    localStorage.removeItem('taskguard_user_profile');
     setPasscode('');
+    setAuthEmail('');
+    setAuthPassword('');
   };
 
   const handleUpdatePassword = (e: React.FormEvent) => {
@@ -811,20 +891,53 @@ export default function TaskGuardDashboard() {
           </div>
 
           <form onSubmit={handleUnlockOrLogin} className="space-y-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
-                Security Passcode / PIN
-              </label>
-              <input
-                type="password"
-                required
-                autoFocus
-                value={passcode}
-                onChange={(e) => setPasscode(e.target.value)}
-                placeholder="Enter passcode (Default: 1234 or admin)"
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition text-center tracking-widest font-mono font-bold"
-              />
-            </div>
+            {isRelock ? (
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
+                  Security Passcode / PIN
+                </label>
+                <input
+                  type="password"
+                  required
+                  autoFocus
+                  value={passcode}
+                  onChange={(e) => setPasscode(e.target.value)}
+                  placeholder="Enter PIN (Default: 1234)"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition text-center tracking-widest font-mono font-bold"
+                />
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                    Email Address
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    autoFocus
+                    value={authEmail}
+                    onChange={(e) => setAuthEmail(e.target.value)}
+                    placeholder="admin@blessinghands.com"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                    Password
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={authPassword}
+                    onChange={(e) => setAuthPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
+                  />
+                </div>
+              </>
+            )}
 
             {loginError && (
               <div className="p-3 bg-rose-950/80 border border-rose-800 text-rose-300 text-xs rounded-xl text-center font-medium">
@@ -834,12 +947,19 @@ export default function TaskGuardDashboard() {
 
             <button
               type="submit"
-              className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-lg transition duration-150 ease-in-out cursor-pointer flex items-center justify-center space-x-2"
+              disabled={isAuthLoading}
+              className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold rounded-xl shadow-lg transition duration-150 ease-in-out cursor-pointer flex items-center justify-center space-x-2"
             >
-              <span>{isRelock ? '🔓 Unlock Dashboard' : '🛡️ Access System'}</span>
+              <span>
+                {isAuthLoading
+                  ? 'Verifying Credentials...'
+                  : isRelock
+                  ? '🔓 Unlock Dashboard'
+                  : '🛡️ Sign In to Account'}
+              </span>
             </button>
 
-            {isRelock && (
+            {isRelock ? (
               <button
                 type="button"
                 onClick={handleLogout}
@@ -847,12 +967,12 @@ export default function TaskGuardDashboard() {
               >
                 Sign out completely
               </button>
-            )}
+            ) : null}
           </form>
 
           <div className="mt-8 pt-4 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-500">
-            <span>Encrypted HIPAA/PHI Protected</span>
-            <span className="font-mono text-emerald-500/80">PIN: 1234</span>
+            <span>HIPAA/PHI Multi-User Active</span>
+            <span className="font-mono text-emerald-500/80">TaskGuard Cloud</span>
           </div>
         </div>
       </div>
@@ -905,6 +1025,33 @@ export default function TaskGuardDashboard() {
             <span>{isCheckingUpdate ? '🔄' : updateAvailable?.hasUpdate ? '⚡' : '☁️'}</span>
             <span>{isCheckingUpdate ? 'Checking...' : updateAvailable?.hasUpdate ? 'Update Ready' : 'v1.1'}</span>
           </button>
+
+          {/* User Profile Badge */}
+          {currentUserProfile && (
+            <div className="flex items-center space-x-2 bg-slate-900 border border-slate-700/80 px-2.5 py-1 rounded-lg text-xs">
+              <span className="text-slate-300 font-semibold">{currentUserProfile.full_name || currentUserProfile.email.split('@')[0]}</span>
+              <span
+                className={`text-[10px] font-bold px-1.5 py-0.5 rounded border uppercase ${
+                  currentUserProfile.role === 'admin'
+                    ? 'bg-amber-950/80 text-amber-300 border-amber-800'
+                    : 'bg-blue-950/80 text-blue-300 border-blue-800'
+                }`}
+              >
+                {currentUserProfile.role === 'admin' ? '🛡️ Admin' : '👤 Member'}
+              </span>
+            </div>
+          )}
+
+          {/* Admin Exclusive: User Management Button */}
+          {currentUserProfile?.role === 'admin' && (
+            <button
+              onClick={() => setShowUserModal(true)}
+              className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg shadow transition cursor-pointer flex items-center space-x-1"
+              title="Manage users and permissions (Admin Control)"
+            >
+              <span>👥 Users</span>
+            </button>
+          )}
 
           <button
             onClick={handleLockNow}
@@ -1589,6 +1736,13 @@ export default function TaskGuardDashboard() {
               </div>
             </div>
           )}
+
+          {/* Admin User Management Modal */}
+          <UserManagementModal
+            isOpen={showUserModal}
+            onClose={() => setShowUserModal(false)}
+            currentUserProfile={currentUserProfile}
+          />
         </main>
       </div>
     </div>

@@ -37,8 +37,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 ; Copiar todos los archivos compilados del bundle
 Source: "dist\*"; DestDir: "{app}\dist"; Flags: ignoreversion recursesubdirs createallsubdirs
-; Copiar el ejecutable / lanzador
+; Copiar el ejecutable / lanzador y el micro-servidor nativo
 Source: "launch-production.bat"; DestDir: "{app}"; DestName: "TaskGuard.bat"; Flags: ignoreversion
+Source: "TaskGuardServer.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; Copiar icono y metadatos
 Source: "taskguard.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "package.json"; DestDir: "{app}"; Flags: ignoreversion
