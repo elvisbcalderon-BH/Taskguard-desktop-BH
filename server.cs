@@ -10,7 +10,7 @@ namespace TaskGuardServer
     {
         private static HttpListener listener;
         private static string distPath;
-        private const int Port = 5174;
+        private const int Port = 5890;
 
         static void Main(string[] args)
         {
