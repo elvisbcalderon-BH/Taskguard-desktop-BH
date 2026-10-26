@@ -24,7 +24,7 @@ SolidCompression=yes
 WizardStyle=modern
 OutputDir=Output
 OutputBaseFilename=TaskGuard-Desktop-Setup-v1.1
-PrivilegesRequired=lowest
+PrivilegesRequired=admin
 PrivilegesRequiredOverridesAllowed=dialog
 
 [Languages]
