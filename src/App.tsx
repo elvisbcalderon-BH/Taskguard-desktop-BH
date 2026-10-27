@@ -9,6 +9,13 @@ export interface Installment {
   amount: number;
 }
 
+export interface TaskComment {
+  id: string;
+  author: string;
+  content: string;
+  created_at: string;
+}
+
 export interface Item {
   id: string;
   type: 'Task' | 'Bill'; // SEPARACIÓN CLAVE: Activity vs Bill
@@ -23,6 +30,7 @@ export interface Item {
   due_date: string;
   recurring_monthly: boolean;
   installments: Installment[];
+  comments?: TaskComment[];
   is_new?: boolean;
   created_at?: string;
 }
@@ -139,6 +147,9 @@ export default function TaskGuardDashboard() {
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [paymentModalItem, setPaymentModalItem] = useState<Item | null>(null);
   const [viewingItem, setViewingItem] = useState<Item | null>(null);
+  const [commentModalItem, setCommentModalItem] = useState<Item | null>(null);
+  const [newCommentText, setNewCommentText] = useState('');
+  const [commentAuthor, setCommentAuthor] = useState('');
 
   // Campos para abono de cuotas
   const [paymentAmount, setPaymentAmount] = useState(0);
@@ -324,6 +335,7 @@ export default function TaskGuardDashboard() {
               due_date: raw.due_date ? raw.due_date.substring(0, 10) : '2026-10-20',
               recurring_monthly: !!raw.recurring_monthly,
               installments: Array.isArray(raw.installments) ? raw.installments : [],
+              comments: Array.isArray(raw.comments) ? raw.comments : [],
               is_new: true,
               created_at: raw.created_at || new Date().toISOString(),
             };
@@ -613,6 +625,7 @@ export default function TaskGuardDashboard() {
 
             const itemType: 'Task' | 'Bill' = t.type === 'Task' ? 'Task' : (t.amount > 0 || t.recurring_monthly ? 'Bill' : 'Task');
             const instList: Installment[] = Array.isArray(t.installments) ? t.installments : [];
+            const commentList: TaskComment[] = Array.isArray(t.comments) ? t.comments : [];
 
             return {
               id: t.id,
@@ -628,6 +641,7 @@ export default function TaskGuardDashboard() {
               due_date: t.due_date ? t.due_date.substring(0, 10) : '2026-10-20',
               recurring_monthly: t.recurring_monthly !== undefined ? !!t.recurring_monthly : false,
               installments: instList,
+              comments: commentList,
             };
           })
         );
@@ -713,6 +727,57 @@ export default function TaskGuardDashboard() {
     }
 
     setPaymentModalItem(null);
+  };
+
+  // Abrir modal de notas y comentarios
+  const openCommentModal = (item: Item) => {
+    setCommentModalItem(item);
+    setNewCommentText('');
+    const defaultAuthor = currentUserProfile?.full_name || currentUserProfile?.email?.split('@')[0] || 'Team Member';
+    setCommentAuthor(defaultAuthor);
+  };
+
+  // Guardar nuevo comentario / incidencia en el Task
+  const handleAddComment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!commentModalItem || !newCommentText.trim()) return;
+
+    const newComment: TaskComment = {
+      id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(),
+      author: commentAuthor.trim() || 'Team Member',
+      content: newCommentText.trim(),
+      created_at: new Date().toISOString(),
+    };
+
+    const existingComments = Array.isArray(commentModalItem.comments) ? commentModalItem.comments : [];
+    const updatedComments = [...existingComments, newComment];
+
+    // 1. Actualizar estado local reactivo
+    setItems((prev) =>
+      prev.map((i) =>
+        i.id === commentModalItem.id ? { ...i, comments: updatedComments } : i
+      )
+    );
+
+    // Si el modal de ver detalles está abierto con este mismo item, actualizarlo también
+    if (viewingItem && viewingItem.id === commentModalItem.id) {
+      setViewingItem({ ...viewingItem, comments: updatedComments });
+    }
+
+    setCommentModalItem({ ...commentModalItem, comments: updatedComments });
+    setNewCommentText('');
+
+    // 2. Persistir en Supabase
+    if (commentModalItem.id.length > 20) {
+      try {
+        await supabase
+          .from('tasks')
+          .update({ comments: updatedComments })
+          .eq('id', commentModalItem.id);
+      } catch (err) {
+        console.warn('Error saving comment to Supabase:', err);
+      }
+    }
   };
 
   // Marcar Actividad (Task) como completada
@@ -1582,6 +1647,19 @@ export default function TaskGuardDashboard() {
                           👁️ View
                         </button>
 
+                        <button
+                          onClick={() => openCommentModal(item)}
+                          className={`px-2 py-1.5 text-[10px] font-bold rounded border cursor-pointer transition flex items-center space-x-1 ${
+                            item.comments && item.comments.length > 0
+                              ? 'bg-amber-950/80 hover:bg-amber-900 text-amber-300 border-amber-700'
+                              : 'bg-slate-700 hover:bg-slate-600 text-slate-300 border-slate-600'
+                          }`}
+                          title="Notas y Comentarios de Seguimiento"
+                        >
+                          <span>💬</span>
+                          <span>{item.comments && item.comments.length > 0 ? item.comments.length : 'Nota'}</span>
+                        </button>
+
                         {item.type === 'Bill' ? (
                           <button
                             onClick={() => openPaymentModal(item)}
@@ -1748,11 +1826,140 @@ export default function TaskGuardDashboard() {
                   </div>
                 )}
 
-                <div className="flex justify-end pt-2">
-                  <button onClick={() => setViewingItem(null)} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded cursor-pointer">
-                    Close View
+                {/* Task Comments & Delay Notes */}
+                <div className="bg-slate-900 p-3 rounded border border-slate-700 space-y-2">
+                  <div className="flex justify-between items-center">
+                    <h4 className="font-bold text-sky-400 uppercase tracking-wider text-[10px]">
+                      💬 Notas de Seguimiento e Incidencias ({viewingItem.comments?.length || 0}):
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={() => openCommentModal(viewingItem)}
+                      className="px-2 py-0.5 bg-sky-700 hover:bg-sky-600 text-white text-[10px] font-bold rounded cursor-pointer"
+                    >
+                      + Añadir Nota
+                    </button>
+                  </div>
+                  {(!viewingItem.comments || viewingItem.comments.length === 0) ? (
+                    <p className="text-slate-500 italic">No hay notas de retraso o seguimiento registradas.</p>
+                  ) : (
+                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                      {viewingItem.comments.map((c) => (
+                        <div key={c.id} className="bg-slate-800/90 p-2.5 rounded border border-slate-700 text-[11px] space-y-1">
+                          <div className="flex justify-between items-center text-slate-400 text-[10px]">
+                            <span className="font-bold text-sky-300">👤 {c.author}</span>
+                            <span>📅 {new Date(c.created_at).toLocaleDateString()} {new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+                          <p className="text-slate-200 whitespace-pre-wrap">{c.content}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex justify-between items-center pt-2">
+                  <button
+                    onClick={() => openCommentModal(viewingItem)}
+                    className="px-3 py-1.5 bg-amber-700 hover:bg-amber-600 text-white font-bold rounded cursor-pointer text-xs"
+                  >
+                    💬 Dejar Comentario
+                  </button>
+                  <button onClick={() => setViewingItem(null)} className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded cursor-pointer text-xs">
+                    Cerrar
                   </button>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Dedicated Comment / Delay Note Modal */}
+          {commentModalItem && (
+            <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex justify-center items-center p-4 z-50 print:hidden">
+              <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 w-full max-w-lg shadow-2xl space-y-4 text-xs">
+                <div className="flex justify-between items-start border-b border-slate-700 pb-3">
+                  <div>
+                    <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-sky-950 text-sky-300 border border-sky-800">
+                      💬 Seguimiento / Incidencia
+                    </span>
+                    <h3 className="text-base font-bold text-white mt-1">{commentModalItem.title}</h3>
+                  </div>
+                  <button
+                    onClick={() => setCommentModalItem(null)}
+                    className="text-slate-400 hover:text-white font-bold cursor-pointer text-sm"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* History of notes */}
+                <div className="space-y-2">
+                  <h4 className="font-bold text-slate-300 text-[11px]">
+                    Historial de Comentarios ({commentModalItem.comments?.length || 0}):
+                  </h4>
+                  <div className="bg-slate-900 p-3 rounded border border-slate-700 max-h-48 overflow-y-auto space-y-2">
+                    {(!commentModalItem.comments || commentModalItem.comments.length === 0) ? (
+                      <p className="text-slate-500 italic">No hay notas previas para esta tarea.</p>
+                    ) : (
+                      commentModalItem.comments.map((c) => (
+                        <div key={c.id} className="bg-slate-800 p-2.5 rounded border border-slate-700 space-y-1">
+                          <div className="flex justify-between items-center text-[10px]">
+                            <span className="font-bold text-sky-300">👤 {c.author}</span>
+                            <span className="text-slate-400">
+                              {new Date(c.created_at).toLocaleDateString()} {new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                          <p className="text-slate-200 whitespace-pre-wrap">{c.content}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Add new note form */}
+                <form onSubmit={handleAddComment} className="space-y-3 pt-1 border-t border-slate-700">
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="col-span-1">
+                      <label className="block text-slate-400 mb-1 text-[11px]">Tu Nombre / Rol</label>
+                      <input
+                        type="text"
+                        value={commentAuthor}
+                        onChange={(e) => setCommentAuthor(e.target.value)}
+                        placeholder="Ej. Elvis / Recepción"
+                        className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white focus:outline-none focus:border-sky-500"
+                        required
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-slate-400 mb-1 text-[11px]">¿Por qué no se pudo completar o qué ocurrió?</label>
+                      <input
+                        type="text"
+                        value={newCommentText}
+                        onChange={(e) => setNewCommentText(e.target.value)}
+                        placeholder="Ej. El proveedor no respondió; reprogramado para mañana temprano."
+                        className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white focus:outline-none focus:border-sky-500"
+                        required
+                        autoFocus
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end space-x-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setCommentModalItem(null)}
+                      className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded cursor-pointer"
+                    >
+                      Cerrar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={!newCommentText.trim()}
+                      className="px-4 py-1.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white font-bold rounded cursor-pointer"
+                    >
+                      ➕ Guardar Comentario
+                    </button>
+                  </div>
+                </form>
               </div>
             </div>
           )}
