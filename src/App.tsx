@@ -627,6 +627,20 @@ export default function TaskGuardDashboard() {
             const instList: Installment[] = Array.isArray(t.installments) ? t.installments : [];
             const commentList: TaskComment[] = Array.isArray(t.comments) ? t.comments : [];
 
+            // Cálculo inteligente de ✨ NEW:
+            // Creado en las últimas 24 horas y no reconocido/descartado previamente
+            let isItemNew = false;
+            try {
+              const acknowledgedNewIds = JSON.parse(localStorage.getItem('taskguard_ack_new_ids') || '[]');
+              if (!acknowledgedNewIds.includes(t.id) && t.created_at) {
+                const createdTime = new Date(t.created_at).getTime();
+                const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
+                isItemNew = createdTime > twentyFourHoursAgo;
+              }
+            } catch {
+              isItemNew = false;
+            }
+
             return {
               id: t.id,
               type: itemType,
@@ -642,6 +656,8 @@ export default function TaskGuardDashboard() {
               recurring_monthly: t.recurring_monthly !== undefined ? !!t.recurring_monthly : false,
               installments: instList,
               comments: commentList,
+              is_new: isItemNew,
+              created_at: t.created_at,
             };
           })
         );
@@ -1567,9 +1583,18 @@ export default function TaskGuardDashboard() {
                           {item.is_new && (
                             <span
                               className="text-[9px] px-2 py-0.5 rounded-full font-extrabold uppercase shrink-0 bg-gradient-to-r from-amber-500 to-rose-500 text-slate-950 shadow-md animate-pulse cursor-pointer"
-                              title="New item! Click to acknowledge"
+                              title="¡Nuevo elemento! Clic para marcar como leído"
                               onClick={(e) => {
                                 e.stopPropagation();
+                                try {
+                                  const savedAck = JSON.parse(localStorage.getItem('taskguard_ack_new_ids') || '[]');
+                                  if (!savedAck.includes(item.id)) {
+                                    savedAck.push(item.id);
+                                    localStorage.setItem('taskguard_ack_new_ids', JSON.stringify(savedAck));
+                                  }
+                                } catch (err) {
+                                  console.warn(err);
+                                }
                                 setItems((prev) =>
                                   prev.map((i) => (i.id === item.id ? { ...i, is_new: false } : i))
                                 );
