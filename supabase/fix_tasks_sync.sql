@@ -43,9 +43,19 @@ CREATE POLICY "Sync tasks across all users"
     USING (true)
     WITH CHECK (true);
 
--- 3. HABILITAR TIEMPO REAL (REALTIME) PARA LA TABLA TASKS
--- Esto permite que cuando una PC inserte una tarea, la otra PC la reciba en vivo
-ALTER PUBLICATION supabase_realtime ADD TABLE public.tasks;
+-- 3. HABILITAR TIEMPO REAL (REALTIME) PARA LA TABLA TASKS (Si no está agregada aún)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 
+        FROM pg_publication_tables 
+        WHERE pubname = 'supabase_realtime' 
+          AND schemaname = 'public' 
+          AND tablename = 'tasks'
+    ) THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE public.tasks;
+    END IF;
+END $$;
 
 -- 4. Notificar a PostgREST que recargue el esquema de columnas inmediatamente
 NOTIFY pgrst, 'reload schema';
