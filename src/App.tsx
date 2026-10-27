@@ -816,7 +816,7 @@ export default function TaskGuardDashboard() {
 
       if (editingItem.id.length > 20) {
         try {
-          const { error: updErr } = await supabase
+          const { data: updData, error: updErr } = await supabase
             .from('tasks')
             .update({
               type: formType,
@@ -830,15 +830,36 @@ export default function TaskGuardDashboard() {
               recurring_monthly: formType === 'Bill' ? formRecurring : false,
               phi_flag: formPhi,
             })
-            .eq('id', editingItem.id);
+            .eq('id', editingItem.id)
+            .select();
 
           if (updErr) {
             console.error('Error updating in Supabase:', updErr);
-            alert('Error al actualizar en Supabase: ' + updErr.message);
+            alert('Error Supabase update: ' + updErr.message);
+          } else if (!updData || updData.length === 0) {
+            console.warn('Update en Supabase no afectó filas (¿RLS o ID inexistente?). Insertando...');
+            // Si la fila no existía en Supabase o RLS bloqueó update, intentar upsert/insert
+            await supabase.from('tasks').upsert([
+              {
+                id: editingItem.id,
+                type: formType,
+                title: formTitle,
+                description: formDesc,
+                category: dbCategory,
+                priority: formPriority,
+                quadrant: quadrantVal,
+                amount: formType === 'Bill' ? Number(formAmount) : 0,
+                due_date: safeDueDate,
+                recurring_monthly: formType === 'Bill' ? formRecurring : false,
+                phi_flag: formPhi,
+                bot_access: formCategory !== 'Clinical',
+              }
+            ]);
+            fetchFromSupabase();
           } else {
             fetchFromSupabase();
           }
-        } catch (err) {
+        } catch (err: any) {
           console.warn('Error updating in Supabase:', err);
         }
       } else {
