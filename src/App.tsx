@@ -295,8 +295,20 @@ export default function TaskGuardDashboard() {
             const raw = payload.new as any;
             const itemType: 'Task' | 'Bill' = raw.type === 'Task' ? 'Task' : (raw.amount > 0 ? 'Bill' : 'Task');
             let prioInsert: Item['priority'] = 'High';
-            if (raw.priority === 'Medium' || raw.priority === 'Media' || raw.quadrant === 'not_urgent_important') prioInsert = 'Medium';
-            else if (raw.priority === 'Low' || raw.priority === 'Baja' || raw.quadrant === 'not_urgent_not_important') prioInsert = 'Low';
+            const rawPrio = String(raw.priority || '').trim().toLowerCase();
+            const rawQuad = String(raw.quadrant || '').trim().toLowerCase();
+
+            if (rawPrio === 'medium' || rawPrio === 'media') {
+              prioInsert = 'Medium';
+            } else if (rawPrio === 'low' || rawPrio === 'baja') {
+              prioInsert = 'Low';
+            } else if (rawPrio === 'high' || rawPrio === 'alta') {
+              prioInsert = 'High';
+            } else if (rawQuad === 'not_urgent_important') {
+              prioInsert = 'Medium';
+            } else if (rawQuad === 'not_urgent_not_important') {
+              prioInsert = 'Low';
+            }
 
             const newlyCreated: Item = {
               id: raw.id,
@@ -579,8 +591,20 @@ export default function TaskGuardDashboard() {
             else if (t.category === 'Personal') cat = 'Personal';
 
             let prio: Item['priority'] = 'High';
-            if (t.priority === 'Medium' || t.priority === 'Media' || t.quadrant === 'not_urgent_important') prio = 'Medium';
-            else if (t.priority === 'Low' || t.priority === 'Baja' || t.quadrant === 'not_urgent_not_important') prio = 'Low';
+            const rawPrio = String(t.priority || '').trim().toLowerCase();
+            const rawQuad = String(t.quadrant || '').trim().toLowerCase();
+
+            if (rawPrio === 'medium' || rawPrio === 'media') {
+              prio = 'Medium';
+            } else if (rawPrio === 'low' || rawPrio === 'baja') {
+              prio = 'Low';
+            } else if (rawPrio === 'high' || rawPrio === 'alta') {
+              prio = 'High';
+            } else if (rawQuad === 'not_urgent_important') {
+              prio = 'Medium';
+            } else if (rawQuad === 'not_urgent_not_important') {
+              prio = 'Low';
+            }
 
             let stat: Item['status'] = 'Pending';
             if (t.status === 'completed' || t.status === 'Completed' || t.status === 'Completada') stat = 'Completed';
@@ -786,6 +810,10 @@ export default function TaskGuardDashboard() {
         safeDueDate = new Date(formDueDate).toISOString();
       }
 
+      let dbCategory = formCategory;
+      if (formCategory === 'Clinical') dbCategory = 'Clinica' as any;
+      if (formCategory === 'Administrative') dbCategory = 'Administrativa' as any;
+
       if (editingItem.id.length > 20) {
         try {
           const { error: updErr } = await supabase
@@ -794,7 +822,7 @@ export default function TaskGuardDashboard() {
               type: formType,
               title: formTitle,
               description: formDesc,
-              category: formCategory,
+              category: dbCategory,
               priority: formPriority,
               quadrant: quadrantVal,
               amount: formType === 'Bill' ? Number(formAmount) : 0,
@@ -812,6 +840,40 @@ export default function TaskGuardDashboard() {
           }
         } catch (err) {
           console.warn('Error updating in Supabase:', err);
+        }
+      } else {
+        // Si el elemento era local inicial (id corto como '1', '2', etc.), insertarlo en Supabase con la nueva prioridad
+        try {
+          const { data: insData, error: insErr } = await supabase
+            .from('tasks')
+            .insert([
+              {
+                type: formType,
+                title: formTitle,
+                description: formDesc,
+                category: dbCategory,
+                priority: formPriority,
+                quadrant: quadrantVal,
+                amount: formType === 'Bill' ? Number(formAmount) : 0,
+                recurring_monthly: formType === 'Bill' ? formRecurring : false,
+                phi_flag: formPhi,
+                bot_access: formCategory !== 'Clinical',
+                due_date: safeDueDate,
+                installments: [],
+              },
+            ])
+            .select();
+
+          if (!insErr && insData && insData[0]) {
+            // Actualizar el ID local con el ID devuelto por Supabase
+            const dbId = insData[0].id;
+            const syncedItems = updatedItems.map((i) => (i.id === editingItem.id ? { ...i, id: dbId } : i));
+            setItems(syncedItems);
+            localStorage.setItem('taskguard_items_v2', JSON.stringify(syncedItems));
+            fetchFromSupabase();
+          }
+        } catch (e) {
+          console.warn('Error saving local item to Supabase:', e);
         }
       }
     } else {
