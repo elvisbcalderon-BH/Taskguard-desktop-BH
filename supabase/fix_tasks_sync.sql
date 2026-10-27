@@ -25,6 +25,9 @@ ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'Business (BH)';
 ALTER TABLE public.tasks 
 ADD COLUMN IF NOT EXISTS bot_access BOOLEAN DEFAULT true;
 
+ALTER TABLE public.tasks 
+ADD COLUMN IF NOT EXISTS priority TEXT DEFAULT 'High';
+
 -- Permitir user_id opcional para inserciones directas
 ALTER TABLE public.tasks 
 ALTER COLUMN user_id DROP NOT NULL;

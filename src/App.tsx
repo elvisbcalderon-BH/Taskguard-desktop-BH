@@ -294,13 +294,17 @@ export default function TaskGuardDashboard() {
           if (payload.new) {
             const raw = payload.new as any;
             const itemType: 'Task' | 'Bill' = raw.type === 'Task' ? 'Task' : (raw.amount > 0 ? 'Bill' : 'Task');
+            let prioInsert: Item['priority'] = 'High';
+            if (raw.priority === 'Medium' || raw.priority === 'Media' || raw.quadrant === 'not_urgent_important') prioInsert = 'Medium';
+            else if (raw.priority === 'Low' || raw.priority === 'Baja' || raw.quadrant === 'not_urgent_not_important') prioInsert = 'Low';
+
             const newlyCreated: Item = {
               id: raw.id,
               type: itemType,
               title: raw.title,
               description: raw.description || '',
               category: raw.category || 'Business (BH)',
-              priority: raw.priority || 'High',
+              priority: prioInsert,
               amount: Number(raw.amount || 0),
               status: raw.status || 'Pending',
               phi_flag: !!raw.phi_flag,
@@ -575,8 +579,8 @@ export default function TaskGuardDashboard() {
             else if (t.category === 'Personal') cat = 'Personal';
 
             let prio: Item['priority'] = 'High';
-            if (t.priority === 'Media' || t.quadrant === 'not_urgent_important') prio = 'Medium';
-            else if (t.priority === 'Baja' || t.quadrant === 'not_urgent_not_important') prio = 'Low';
+            if (t.priority === 'Medium' || t.priority === 'Media' || t.quadrant === 'not_urgent_important') prio = 'Medium';
+            else if (t.priority === 'Low' || t.priority === 'Baja' || t.quadrant === 'not_urgent_not_important') prio = 'Low';
 
             let stat: Item['status'] = 'Pending';
             if (t.status === 'completed' || t.status === 'Completed' || t.status === 'Completada') stat = 'Completed';
@@ -752,40 +756,60 @@ export default function TaskGuardDashboard() {
     if (!formTitle || !formDueDate) return;
 
     if (editingItem) {
-      setItems((prev) =>
-        prev.map((i) =>
-          i.id === editingItem.id
-            ? {
-                ...i,
-                type: formType,
-                title: formTitle,
-                description: formDesc,
-                category: formCategory,
-                priority: formPriority,
-                amount: formType === 'Bill' ? Number(formAmount) : 0,
-                due_date: formDueDate,
-                recurring_monthly: formType === 'Bill' ? formRecurring : false,
-                phi_flag: formPhi,
-              }
-            : i
-        )
+      const updatedItems = items.map((i) =>
+        i.id === editingItem.id
+          ? {
+              ...i,
+              type: formType,
+              title: formTitle,
+              description: formDesc,
+              category: formCategory,
+              priority: formPriority,
+              amount: formType === 'Bill' ? Number(formAmount) : 0,
+              due_date: formDueDate,
+              recurring_monthly: formType === 'Bill' ? formRecurring : false,
+              phi_flag: formPhi,
+            }
+          : i
       );
+      setItems(updatedItems);
+      try {
+        localStorage.setItem('taskguard_items_v2', JSON.stringify(updatedItems));
+      } catch (e) {
+        console.warn('Error saving to localStorage:', e);
+      }
+
+      const quadrantVal = formPriority === 'High' ? 'urgent_important' : formPriority === 'Medium' ? 'not_urgent_important' : 'not_urgent_not_important';
+
+      let safeDueDate: string | null = null;
+      if (formDueDate && !isNaN(new Date(formDueDate).getTime())) {
+        safeDueDate = new Date(formDueDate).toISOString();
+      }
 
       if (editingItem.id.length > 20) {
         try {
-          await supabase
+          const { error: updErr } = await supabase
             .from('tasks')
             .update({
               type: formType,
               title: formTitle,
               description: formDesc,
               category: formCategory,
+              priority: formPriority,
+              quadrant: quadrantVal,
               amount: formType === 'Bill' ? Number(formAmount) : 0,
-              due_date: new Date(formDueDate).toISOString(),
+              due_date: safeDueDate,
               recurring_monthly: formType === 'Bill' ? formRecurring : false,
               phi_flag: formPhi,
             })
             .eq('id', editingItem.id);
+
+          if (updErr) {
+            console.error('Error updating in Supabase:', updErr);
+            alert('Error al actualizar en Supabase: ' + updErr.message);
+          } else {
+            fetchFromSupabase();
+          }
         } catch (err) {
           console.warn('Error updating in Supabase:', err);
         }
@@ -821,6 +845,8 @@ export default function TaskGuardDashboard() {
       if (newItem.category === 'Clinical') dbCategory = 'Clinica' as any;
       if (newItem.category === 'Administrative') dbCategory = 'Administrativa' as any;
 
+      const quadrantVal = newItem.priority === 'High' ? 'urgent_important' : newItem.priority === 'Medium' ? 'not_urgent_important' : 'not_urgent_not_important';
+
       try {
         const { error: insErr } = await supabase.from('tasks').insert([
           {
@@ -828,6 +854,8 @@ export default function TaskGuardDashboard() {
             title: newItem.title,
             description: newItem.description,
             category: dbCategory,
+            priority: newItem.priority,
+            quadrant: quadrantVal,
             amount: newItem.amount,
             recurring_monthly: newItem.recurring_monthly,
             phi_flag: newItem.phi_flag,
@@ -890,18 +918,29 @@ export default function TaskGuardDashboard() {
       };
     }
 
-    const today = new Date('2026-10-19');
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
     const dueDate = new Date(item.due_date);
+    dueDate.setHours(0, 0, 0, 0);
     const diffDays = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
     const isOverdue = diffDays < 0;
 
     // 1. ROJO: Vencido o Prioridad Alta
-    if (isOverdue || item.priority === 'High') {
+    if (isOverdue) {
       return {
         rank: 1,
         indicator: 'bg-rose-500 animate-pulse',
         badge: 'bg-rose-950 text-rose-400 border border-rose-800',
-        text: isOverdue ? `Overdue (${Math.abs(diffDays)}d)` : 'Critical / High',
+        text: `Overdue (${Math.abs(diffDays)}d)`,
+      };
+    }
+
+    if (item.priority === 'High') {
+      return {
+        rank: 1,
+        indicator: 'bg-rose-500',
+        badge: 'bg-rose-950 text-rose-400 border border-rose-800',
+        text: `High Priority (${diffDays}d)`,
       };
     }
 
@@ -1400,10 +1439,21 @@ export default function TaskGuardDashboard() {
                         </p>
                       </div>
 
-                      {/* CATEGORY & HIPAA */}
+                      {/* CATEGORY & HIPAA & PRIORITY */}
                       <div className="col-span-1 flex flex-col space-y-1">
                         <span className="inline-block text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-800 w-fit">
                           {item.category}
+                        </span>
+                        <span
+                          className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded border w-fit ${
+                            item.priority === 'High'
+                              ? 'bg-rose-950/70 text-rose-300 border-rose-800'
+                              : item.priority === 'Medium'
+                              ? 'bg-amber-950/70 text-amber-300 border-amber-800'
+                              : 'bg-emerald-950/70 text-emerald-300 border-emerald-800'
+                          }`}
+                        >
+                          ⚡ {item.priority}
                         </span>
                         {item.phi_flag && (
                           <span className="text-[9px] bg-rose-950 text-rose-400 border border-rose-800 px-1.5 py-0.5 rounded font-mono font-semibold w-fit">
@@ -1575,6 +1625,15 @@ export default function TaskGuardDashboard() {
                       </span>
                       <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-800">
                         {viewingItem.category}
+                      </span>
+                      <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded border ${
+                        viewingItem.priority === 'High'
+                          ? 'bg-rose-950 text-rose-300 border-rose-800'
+                          : viewingItem.priority === 'Medium'
+                          ? 'bg-amber-950 text-amber-300 border-amber-800'
+                          : 'bg-emerald-950 text-emerald-300 border-emerald-800'
+                      }`}>
+                        ⚡ {viewingItem.priority}
                       </span>
                     </div>
                     <h3 className="text-lg font-bold text-white">{viewingItem.title}</h3>
