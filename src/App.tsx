@@ -1084,9 +1084,19 @@ export default function TaskGuardDashboard() {
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const dueDate = new Date(item.due_date);
+
+    let dueDate = new Date();
+    if (item.due_date) {
+      const parts = item.due_date.substring(0, 10).split('-');
+      if (parts.length === 3) {
+        dueDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+      } else {
+        dueDate = new Date(item.due_date);
+      }
+    }
     dueDate.setHours(0, 0, 0, 0);
-    const diffDays = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+    const diffDays = Math.round((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
     const isOverdue = diffDays < 0;
 
     // 1. ROJO: Vencido o Prioridad Alta
