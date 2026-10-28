@@ -745,8 +745,25 @@ export default function TaskGuardDashboard() {
     setPaymentModalItem(null);
   };
 
+  // Marcar una tarea como leída para quitar la etiqueta ✨ NEW
+  const acknowledgeTaskAsRead = (taskId: string) => {
+    try {
+      const savedAck = JSON.parse(localStorage.getItem('taskguard_ack_new_ids') || '[]');
+      if (!savedAck.includes(taskId)) {
+        savedAck.push(taskId);
+        localStorage.setItem('taskguard_ack_new_ids', JSON.stringify(savedAck));
+      }
+    } catch (err) {
+      console.warn(err);
+    }
+    setItems((prev) =>
+      prev.map((i) => (i.id === taskId ? { ...i, is_new: false } : i))
+    );
+  };
+
   // Abrir modal de notas y comentarios
   const openCommentModal = (item: Item) => {
+    acknowledgeTaskAsRead(item.id);
     setCommentModalItem(item);
     setNewCommentText('');
     const defaultAuthor = currentUserProfile?.full_name || currentUserProfile?.email?.split('@')[0] || 'Team Member';
@@ -1596,18 +1613,7 @@ export default function TaskGuardDashboard() {
                               title="¡Nuevo elemento! Clic para marcar como leído"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                try {
-                                  const savedAck = JSON.parse(localStorage.getItem('taskguard_ack_new_ids') || '[]');
-                                  if (!savedAck.includes(item.id)) {
-                                    savedAck.push(item.id);
-                                    localStorage.setItem('taskguard_ack_new_ids', JSON.stringify(savedAck));
-                                  }
-                                } catch (err) {
-                                  console.warn(err);
-                                }
-                                setItems((prev) =>
-                                  prev.map((i) => (i.id === item.id ? { ...i, is_new: false } : i))
-                                );
+                                acknowledgeTaskAsRead(item.id);
                               }}
                             >
                               ✨ NEW
@@ -1676,7 +1682,10 @@ export default function TaskGuardDashboard() {
                       {/* Tailored Actions: Bill vs Task */}
                       <div className="col-span-2 flex justify-end items-center space-x-1.5 print:hidden">
                         <button
-                          onClick={() => setViewingItem(item)}
+                          onClick={() => {
+                            acknowledgeTaskAsRead(item.id);
+                            setViewingItem(item);
+                          }}
                           className="px-2 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 text-[10px] font-bold rounded border border-slate-600 cursor-pointer"
                         >
                           👁️ View
