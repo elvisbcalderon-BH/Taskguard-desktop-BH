@@ -3,6 +3,8 @@ import { supabase } from './lib/supabase';
 import { TaskGuardLogo } from './components/TaskGuardLogo';
 import { UserManagementModal, type UserProfile } from './components/UserManagementModal';
 
+declare const __GIT_COMMIT_HASH__: string;
+
 export interface Installment {
   id: string;
   date: string;
@@ -198,7 +200,7 @@ export default function TaskGuardDashboard() {
 
   // GitHub Auto-Updater Connector (Every 3 hours)
   const CURRENT_APP_VERSION = 'v1.1.0';
-  const CURRENT_COMMIT_HASH = 'b474d59';
+  const CURRENT_COMMIT_HASH = typeof __GIT_COMMIT_HASH__ !== 'undefined' ? __GIT_COMMIT_HASH__ : '6140a84';
   const [updateAvailable, setUpdateAvailable] = useState<{ hasUpdate: boolean; remoteHash?: string; message?: string } | null>(null);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [updateStatusText, setUpdateStatusText] = useState('');
